@@ -18,3 +18,38 @@
   body[data-screen=ready] .duel-choice{height:36px;font-size:12px}
   body[data-screen=ready] .duel-keys{font-size:11px}
 }
+/* Split screen (two players on one keyboard): one column per player, each seen from behind its own glove, with its own
+   swing cue, energy, skills and hit captions. The single-player buttons and caption only serve one player, so they hide. */
+.split-hud{position:absolute;inset:0;z-index:4;display:grid;grid-template-columns:1fr 1fr;pointer-events:none}
+.split-hud[hidden]{display:none}
+.split-side{position:relative;min-width:0}
+.split-side+.split-side{box-shadow:inset 3px 0 0 rgba(7,11,29,.9)}
+.split-tag{position:absolute;top:calc(var(--top,10px) + 52px);left:14px;padding:3px 11px;border-radius:10px;background:var(--orange);color:#fff;font-size:15px;font-weight:900;letter-spacing:.04em}
+#side-b .split-tag{left:auto;right:14px;background:#3a7bff}
+.split-panel{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:grid;justify-items:center;gap:6px;padding:9px 14px;border-radius:16px;background:rgba(11,16,34,.74);color:#fff;font-size:12px;white-space:nowrap}
+.split-cue{font-size:15px;font-weight:800}
+.split-cue.ready{color:#ffd23a}
+.split-energy{width:160px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+.split-energy i{display:block;width:50%;height:100%;background:linear-gradient(90deg,#1ec8b4,#ffd23a)}
+.split-skills{display:flex;gap:8px}
+.split-skills span{padding:2px 9px;border-radius:8px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.62)}
+.split-skills span.ready{background:#2a1d2a;color:#fff;box-shadow:inset 0 0 0 1px var(--orange)}
+.split-keys{color:rgba(255,255,255,.55);font-size:11px}
+.split-pop{position:absolute;top:42%;left:0;right:0;text-align:center;font-size:24px;font-weight:900;color:#fff;opacity:0;-webkit-text-stroke:5px #1f4434;paint-order:stroke fill}
+.split-pop.miss{-webkit-text-stroke-color:#5b2b1f}
+.split-pop.show{animation:split-pop .9s ease-out}
+@keyframes split-pop{0%{opacity:0;transform:translateY(8px) scale(.9)}15%{opacity:1;transform:none}70%{opacity:1}100%{opacity:0;transform:translateY(-12px)}}
+body[data-split] .controls,body[data-split] #hit-pop{display:none!important}
+/* The score, the match status and the verdict banner belong to both players: centred on the divider. */
+body[data-split][data-screen] .hud{left:50%;transform:translateX(-50%)}
+body[data-split][data-screen] .court-badge{left:50%;right:auto;top:calc(var(--top) + 50px);transform:translateX(-50%)}
+body[data-split][data-screen] .result-pop{left:50%;top:calc(var(--top) + 90px);transform:translateX(-50%)}
+body[data-split][data-screen] .result-pop.show{animation-name:verdict}
+/* Fighter picks (one row per player) and the picked fighter's strengths and weaknesses. */
+.fighter-group .duel-choice{height:38px;padding:0 6px;font-size:13px}
+.fighter-role{margin:-4px 0 0;font-size:12px;line-height:1.5;color:var(--muted);min-height:18px}
+.fighter-role b{color:var(--ink)}
+@media(max-height:570px) and (min-width:701px){
+  body[data-screen=ready] .fighter-group .duel-choice{height:32px;font-size:12px}
+  body[data-screen=ready] .fighter-role{font-size:11px}
+}

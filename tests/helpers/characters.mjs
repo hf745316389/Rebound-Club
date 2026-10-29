@@ -18,4 +18,5 @@ async function parse(file){
   if(!files.has(file))files.set(file,withoutImages(await readFile(new URL('../../dist/'+file,import.meta.url))));
   return new Promise((resolve,reject)=>new GLTFLoader().parse(files.get(file).slice(0),'',resolve,reject));
 }
-export const loadCharacters=()=>loadCharacterAssets(parse);
+// roles: characters.mjs roles to load (the club's two by default).
+export const loadCharacters=roles=>loadCharacterAssets(parse,roles);

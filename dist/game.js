@@ -3,6 +3,7 @@ import {createInput} from './input.mjs';
 import {renderShareCard,shareCard} from './share.mjs';
 import {loadProgress,saveProgress,needsTutorial} from './storage.mjs';
 import {create3DRenderer} from './scene3d.mjs';
+import {LEVEL_BOSSES} from './characters.mjs';
 import {sound,buzz,setSound} from './sfx.mjs';
 import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE} from './ui.mjs';
 
@@ -31,6 +32,10 @@ function selections(){
   $('stage-name').textContent=LEVELS[selected].name;
   document.querySelector('.game-top .mini-label').textContent=`第 ${String(selected+1).padStart(2,'0')} 关`;
   $('level-note').textContent=LEVELS[selected].lesson;
+  // Each level's keeper has a face (characters.mjs LEVEL_BOSSES); the court shows it, and the next one is fetched ahead.
+  const boss=LEVEL_BOSSES[selected];$('level-boss').textContent=`本关门将：${boss.name}「${boss.title}」，${boss.intro}`;
+  court3D?.prepare([{near:'striker',far:boss.figure}]).catch(()=>{});
+  court3D?.preload([LEVEL_BOSSES[Math.min(LEVELS.length-1,selected+1)].figure]).catch(()=>{});
   $('prep-level-name').textContent=LEVELS[selected].name;
   $('prep-rule').textContent=`进 ${LEVELS[selected].goals} 球通关 · 丢 3 球结束`;
   $('prep-stage').textContent=`第 ${String(selected+1).padStart(2,'0')} 关`;
@@ -98,6 +103,8 @@ function hud(){
 }
 function pop(text,miss=false){const el=$('hit-pop');el.textContent=text;el.className=`hit-pop${miss?' miss':''}`;void el.offsetWidth;el.classList.add('show');}
 // Shot quality pops mid-court; what the shot achieved gets its own banner at the top.
+// The level's keeper steps up as a match starts (not in the tutorial, which has its own banners).
+function announceBoss(){if(game.tutorial)return;const b=LEVEL_BOSSES[selected];verdict(`本关门将 · ${b.name}「${b.title}」`,'info');}
 function verdict(text,kind){const el=$('result-pop');el.textContent=text;el.className=`result-pop ${kind}`;void el.offsetWidth;el.classList.add('show');}
 function swing(){if(attack(game))sound('swing');}
 // A refused request costs nothing and says why; acceptance is announced by the core's own events.
@@ -134,11 +141,11 @@ document.querySelector('.app').addEventListener('click',e=>{
   if(action==='help'){suspend();$('help-dialog').showModal();return;}
   if(action==='share'){const b=e.target.closest('[data-action]');if(shareShot?.blob)shareCard(shareShot.blob,shareShot.card).then(how=>{if(how!=='cancelled')b.textContent=how==='shared'?'已分享':'战绩图已保存';});return;}
   if(['start','retry','next'].includes(action))goFullscreen();
-  if(action==='start'){if(selected===0&&needsTutorial(progress)&&!game.tutorial){beginTutorial();return;}startGame(game);sound('start');}
+  if(action==='start'){if(selected===0&&needsTutorial(progress)&&!game.tutorial){beginTutorial();return;}startGame(game);sound('start');announceBoss();}
   if(action==='resume')resumeGame(game);
   if(action==='retry'){ready(!!game.tutorial);startGame(game);sound('start');}
   if(action==='ready')ready();
-  if(action==='next'){selected=Math.min(5,selected+1);ready();startGame(game);sound('start');}
+  if(action==='next'){selected=Math.min(5,selected+1);ready();startGame(game);sound('start');announceBoss();}
   phaseUI();hud();
 });
 $('levels').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!b.disabled){selected=Number(b.dataset.level);ready();$('levels').querySelector('.selected')?.focus();}});

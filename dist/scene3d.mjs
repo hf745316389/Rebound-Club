@@ -5,14 +5,15 @@ import {hitFeel} from './ui.mjs';
 import {buildSpectatorCrowd} from './crowd.mjs';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {loadCharacterAssets,createActor,toonMaterial,outlineMaterial,addOutline} from './actor.mjs';
-import {CHARACTERS} from './characters.mjs';
+import {ALL_CHARACTERS} from './characters.mjs';
 
 // Rendering uses (x,height,-physicsDepth); the game simulation remains unchanged.
-// assets: the loaded characters ({striker, keeper} glTFs, see loadCharacterAssets); each world builds its own copies.
+// assets: the loaded characters (glTFs by role, see loadCharacterAssets); each world builds its own copies.
 // duel: the two-player court (duel.html, duel-view.mjs). The far figure is the second player and strikes like the
 // striker instead of diving, and the near goal has the same mouth as the far one, since both ends defend it.
+// cast: the roles (characters.mjs ALL_CHARACTERS) of the near and far figures; the club's striker and keeper by default.
 const SINGLE_HINTS={hitZone,burstZone,swingPreview,skillStatus,spinPreview,predictFlight,goalLock};
-export function buildWorld(assets,{duel=false}={}){
+export function buildWorld(assets,{duel=false,cast={near:'striker',far:'keeper'}}={}){
   // Night arena: a dark venue around a bright court, so the players and the ball carry the picture.
   const scene=new THREE.Scene();scene.background=new THREE.Color('#070b1d');scene.fog=new THREE.Fog('#0d1233',26,70);
   const camera=new THREE.PerspectiveCamera(34,.85,.1,100);
@@ -197,9 +198,10 @@ export function buildWorld(assets,{duel=false}={}){
     spectators.update(now,goalCam.goalAt,reduceMotion);
   }
   // Players: skinned characters (actor.mjs, characters.mjs) on the roots the scene always used: the striker's root
-  // faces -z, the keeper's is turned to face it; root tilt and position keep their old meaning.
-  const striker=createActor(assets.striker,CHARACTERS.striker,'striker'),goalie=createActor(assets.keeper,CHARACTERS.keeper,'keeper');
-  const hero=striker.root,keeper=goalie.root;
+  // faces -z, the keeper's is turned to face it; root tilt and position keep their old meaning. Either figure can be
+  // swapped in place (setFigure, below); everything here reads these four, and the measurements are redone on a swap.
+  let striker=createActor(assets[cast.near],ALL_CHARACTERS[cast.near],'striker'),goalie=createActor(assets[cast.far],ALL_CHARACTERS[cast.far],'keeper');
+  let hero=striker.root,keeper=goalie.root;
   scene.add(hero);hero.position.set(0,0,-1.6);
   // In a duel the second player stands where the striker does, seen from the other end.
   const OPP_Z=GOAL_Z-PLAYER_Z,FAR_Z=duel?OPP_Z:KEEPER_Z;
@@ -376,7 +378,9 @@ export function buildWorld(assets,{duel=false}={}){
   // Hip height and hip drops come from the model (the old 0.9 / 0.35 / 0.24 were for a 0.9 m hip). The old dive also slid
   // the hips 0.3 toward the ball; this placeholder's upper body is long enough that a full-length dive about its spot
   // already reaches as far as a beaten keeper may (keeperReach / beatenDive), so it does not slide.
-  const HIP=goalie.hipHeight,ARM_SPAN=(goalie.height-HIP)*.7,HIP_DROP=.35*HIP/.9,HIP_DOWN=.24*HIP/.9,HIP_SLIDE=0,diveOffset={x:0,y:0};
+  let HIP,ARM_SPAN,HIP_DROP,HIP_DOWN;const HIP_SLIDE=0,diveOffset={x:0,y:0};
+  function measureBody(){HIP=goalie.hipHeight;ARM_SPAN=(goalie.height-HIP)*.7;HIP_DROP=.35*HIP/.9;HIP_DOWN=.24*HIP/.9;}
+  measureBody();
   function poseKeeper(a,dir,land=0){
     const flat=land*Math.min(1,a*2);
     const t0=1.42*a**1.2,tilt=t0+(1.5-t0)*flat;
@@ -404,16 +408,19 @@ export function buildWorld(assets,{duel=false}={}){
     if(w>0){armTarget.set(tx,HIT_HEIGHT-(HIT_HEIGHT-.2)*land,-KEEPER_Z+.15);goalie.aimArm('L',armTarget,w);goalie.aimArm('R',armTarget,w);}
   }
   // How far the keeper's body reaches sideways at ball height (below 1.7) for each stretch with both arms reaching
-  // out toward the ball side, measured once from the model.
-  const keeperReach=(()=>{const out=[],x0=keeper.position.x,y0=keeper.position.y;
+  // out toward the ball side, measured from the model. The club only: a duel's far figure may have no dive clips.
+  function measureSaves(){const out=[],x0=keeper.position.x,y0=keeper.position.y;
     for(let i=0;i<=10;i++){const o=poseKeeper(i/10,1);keeper.position.x=x0+o.x;keeper.position.y=y0+o.y;poseGoalie(i/10,1,0,1,x0+8,0,0,0,0,null,null);out.push(goalie.reach(x0));}
-    poseKeeper(0,1);keeper.position.x=x0;keeper.position.y=y0;poseGoalie(0,1,0,0,0,0,0,0,0,null,null);return out;})();
+    poseKeeper(0,1);keeper.position.x=x0;keeper.position.y=y0;poseGoalie(0,1,0,0,0,0,0,0,0,null,null);return out;}
+  let keeperReach=duel?null:measureSaves();
   // The second player's punch contact frames, measured like the striker's (duel only; it leaves the figure at idle).
-  const OPP_PUNCH=duel?{left:goalie.measureReach('punchLeft'),right:goalie.measureReach('punchRight')}:null;
-  if(duel)goalie.pose([['idle',0,1]]);
+  const OPP_PUNCH=duel?{}:null;
+  function measureOpponent(){if(!duel)return;OPP_PUNCH.left=goalie.measureReach('punchLeft');OPP_PUNCH.right=goalie.measureReach('punchRight');goalie.pose([['idle',0,1]]);}
+  measureOpponent();
   const oppSwing={last:null,endAt:-9,time:0,left:false};
-  // A beaten keeper's fingertips just miss: the stretch stops 0.2 short of the ball's centre (about its radius).
-  function beatenDive(gap){const room=Math.max(keeperReach[0],gap-.2);let d=0;while(d<10&&keeperReach[d+1]<=room)d++;return d/10;}
+  // A beaten keeper's fingertips just miss: the stretch stops 0.2 short of the ball's centre (about its radius). A duel's far
+  // figure never dives (no measured reach), so it stays at 0.
+  function beatenDive(gap){if(!keeperReach)return 0;const room=Math.max(keeperReach[0],gap-.2);let d=0;while(d<10&&keeperReach[d+1]<=room)d++;return d/10;}
   // A save's stretch follows the ball's gap: a ball at the body is a step and a low block, one at the edge of the
   // 0.55 save reach a short dive; the arms go to the ball either way.
   function saveStretch(gap){return .12+.45*Math.max(0,Math.min(1,(gap-.1)/.45));}
@@ -530,7 +537,7 @@ export function buildWorld(assets,{duel=false}={}){
     // Striker: idle or a side-step by the held direction; the punch follows the rules' swing clock (or the burst's).
     hero.position.set(pose.px,0,-s.player.z);follow=pose.px*FOLLOW;
     hero.rotation.z=s.phase==='playing'?-axis*.075:0;
-    const moving=s.phase==='playing'&&Math.abs(axis)>.05,sw=s.swing,w=WEAPONS[s.weapon];
+    const moving=s.phase==='playing'&&Math.abs(axis)>.05,sw=s.swing,w=s.kit??WEAPONS[s.weapon],oKit=s.opponent?.kit??w;
     if(sw!==lastSwing){if(lastSwing&&!sw)swingEnd.at=s.elapsed;else if(sw)punchLeft=s.ball.x<s.player.x-.08;lastSwing=sw;}
     if(sw)swingEnd.time=sw.time;
     const left=!sk&&punchLeft,c=left?PUNCH.left:PUNCH.right;let sTime=0,sWeight=0;
@@ -552,8 +559,8 @@ export function buildWorld(assets,{duel=false}={}){
       if(osw!==os.last){if(os.last&&!osw)os.endAt=s.elapsed;else if(osw)os.left=s.ball.x>k.x+.08;os.last=osw;}
       if(osw)os.time=osw.time;
       const oc=os.left?OPP_PUNCH.left:OPP_PUNCH.right;let oTime=0,oWeight=0;
-      if(osw){oTime=punchTime(osw.time,w,oc.t);oWeight=Math.min(1,osw.time/.025);}
-      else if(s.elapsed-os.endAt<.12){const e=s.elapsed-os.endAt;oTime=punchTime(os.time+e,w,oc.t);oWeight=1-e/.12;}
+      if(osw){oTime=punchTime(osw.time,oKit,oc.t);oWeight=Math.min(1,osw.time/.025);}
+      else if(s.elapsed-os.endAt<.12){const e=s.elapsed-os.endAt;oTime=punchTime(os.time+e,oKit,oc.t);oWeight=1-e/.12;}
       const ow=kw*(1-oWeight);
       keeper.rotation.z=0;keeper.position.set(pose.kx,0,-OPP_Z);
       goalie.pose([[oMoving?(oStep>0?'strafeLeft':'strafeRight'):'idle',oMoving?animT*1.25:animT,1-oWeight-ow,true],[os.left?'punchLeft':'punchRight',oTime,oWeight],['cheer',now-react.at,ow]]);
@@ -603,7 +610,7 @@ export function buildWorld(assets,{duel=false}={}){
     if(fl){
       // Red/green only says whether the keeper covers that line right now; it is not a promise of a goal. In a duel it is
       // the second player's hitting box that covers it.
-      const cover=duel?WEAPONS[s.weapon].width:KEEPER_REACH;
+      const cover=duel?(s.opponent?.kit??WEAPONS[s.weapon]).width:KEEPER_REACH;
       route.forEach((d,i)=>{const on=i+1<fl.count&&fl.zs[i+1]>s.ball.z;d.visible=on;if(on)d.position.set(fl.xs[i+1],.052,-fl.zs[i+1]);});
       const gx=fl.goal??fl.xs[fl.count-1];routeMat.color.set(s.ball.kind==='spin'?'#9df0e2':'#fff6d8');
       target.position.set(gx,.05,-GOAL_Z);target.material.color.set(Math.abs(gx)>s.level.goalHalf?'#c9c9b8':Math.abs(gx-s.keeper.x)<=cover?'#ff5a4a':'#5fe07a');target.visible=true;
@@ -739,9 +746,25 @@ export function buildWorld(assets,{duel=false}={}){
    if(amount>0)camera.position.add(jolt.set(Math.random()-.5,(Math.random()-.5)*.6,Math.random()-.5).multiplyScalar(amount));}
   function project(x,z,height=.73){camera.updateMatrixWorld(true);const p=new THREE.Vector3(x,height,-z).project(camera);return {x:(p.x+1)*.5,y:(1-p.y)*.5};}
   buildFarGoal(LEVELS[0].goalHalf);resize(.85);
-  return {scene,camera,sun,hero,keeper,actors:{striker,goalie},punch:PUNCH,oppPunch:OPP_PUNCH,duel,led:{get offset(){return ledOffset;}},confetti,cameraFollow:FOLLOW,farGoal,nearGoal:goal,ball,platform,gear,zone,aim,target,reachBar,fx,spinArc,burstEdges,chargeRing,burstFx,trail,wallFx,crowd,sign,cine,goalCam,goalCamPose:GC_POSE,update,project,resize,shake};
+  // Swaps one figure in place ('near' or 'far': a duel player's pick, a level's keeper); the court, crowd and lights
+  // stay. The new figure takes the old one's spot, the measurements are redone, and the old one's GPU copies go.
+  function setFigure(end,gltf,spec){
+    const near=end==='near',next=createActor(gltf,spec,near?'striker':'keeper'),old=near?hero:keeper;
+    next.root.position.copy(old.position);next.root.rotation.copy(old.rotation);scene.add(next.root);
+    if(near){striker=next;hero=next.root;gear.glove=next.gloves[1].group;gear.glove.add(handGlow);
+      PUNCH.left=next.measureReach('punchLeft');PUNCH.right=next.measureReach('punchRight');}
+    else{goalie=next;keeper=next.root;measureBody();if(!duel)keeperReach=measureSaves();measureOpponent();}
+    scene.remove(old);releaseObject(old);
+  }
+  return {scene,camera,sun,get hero(){return hero;},get keeper(){return keeper;},actors:{get striker(){return striker;},get goalie(){return goalie;}},punch:PUNCH,oppPunch:OPP_PUNCH,duel,setFigure,led:{get offset(){return ledOffset;}},confetti,cameraFollow:FOLLOW,farGoal,nearGoal:goal,ball,platform,gear,zone,aim,target,reachBar,fx,spinArc,burstEdges,chargeRing,burstFx,trail,wallFx,crowd,sign,cine,goalCam,goalCamPose:GC_POSE,update,project,resize,shake};
 }
 
+// Frees an object tree's GPU copies: geometry, materials and every texture they hold, and each skinned figure's bone
+// texture. A texture shared with another tree is simply uploaded again the next time that tree is drawn.
+export function releaseObject(root){
+  root.traverse(o=>{o.geometry?.dispose();if(o.isSkinnedMesh)o.skeleton?.dispose();
+    for(const m of [o.material].flat())if(m){for(const v of Object.values(m))if(v?.isTexture)v.dispose();m.dispose();}});
+}
 // Adaptive quality: sustained slow frames step the renderer down one tier at a time. It never steps back up within a
 // session, so it cannot oscillate; single spikes and tab-switch gaps (>100 ms) are ignored.
 export const QUALITY_TIERS=[{pixelRatio:1.6,shadowMap:1024},{pixelRatio:1.25,shadowMap:1024},{pixelRatio:1,shadowMap:512}];
@@ -757,6 +780,12 @@ export function createQualityGovernor({slowMs=22,holdMs=2000}={}){
 // Returns at once; `ready` settles when the characters are loaded and the world is built (nothing is drawn before).
 // A failed load rejects `ready`, and the caller falls back to the 2D court.
 // options: passed to buildWorld ({duel}).
+// renderViews draws several players' views side by side on the one canvas (split screen): each column is its own world,
+// built from the same loaded characters on first use, with its own camera framed for the column's shape.
+// prepare([{near, far}, …]) sets each view's figures (characters.mjs roles): it loads a figure the first time one is
+// asked for and swaps only the figures that changed (the court stays). Until then every view has the club's striker and
+// keeper. The latest call wins: one whose downloads finish after a later call's leaves the figures alone (returns false).
+// preload(roles) only fetches figures (say, the next level's keeper) so a later prepare needs no download.
 export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url),options={}){
   // No preserveDrawingBuffer: tiled mobile GPUs would otherwise copy the whole frame every time.
   const context=canvas.getContext('webgl2',{antialias:true,alpha:false});
@@ -764,25 +793,65 @@ export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url
   const renderer=new THREE.WebGLRenderer({canvas,context,antialias:true});
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
-  const governor=createQualityGovernor();let world=null,width=0,height=0,size=null,last=0;
+  const governor=createQualityGovernor(),worlds=[],aspects=new WeakMap(),casts=new WeakMap(),loading=new Map(),CLUB={near:'striker',far:'keeper'};
+  let world=null,assets=null,width=0,height=0,size=null,last=0;
+  function shadowQuality(w){const q=QUALITY_TIERS[governor.tier],shadow=w.sun.shadow;if(shadow.mapSize.x!==q.shadowMap){shadow.mapSize.set(q.shadowMap,q.shadowMap);shadow.map?.dispose();shadow.map=null;}}
   function applyQuality(){
-    const q=QUALITY_TIERS[governor.tier];renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio||1,q.pixelRatio));
-    const shadow=world.sun.shadow;if(shadow.mapSize.x!==q.shadowMap){shadow.mapSize.set(q.shadowMap,q.shadowMap);shadow.map?.dispose();shadow.map=null;}
-    width=0;
+    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio||1,QUALITY_TIERS[governor.tier].pixelRatio));
+    worlds.forEach(shadowQuality);width=0;
   }
-  const ready=loadCharacterAssets(load).then(assets=>{world=buildWorld(assets,options);applyQuality();});
+  function build(cast){const w=buildWorld(assets,{...options,cast});casts.set(w,cast);shadowQuality(w);return w;}
+  const ready=loadCharacterAssets(load).then(a=>{assets=a;for(const role of Object.keys(a))loading.set(ALL_CHARACTERS[role].file,Promise.resolve(a[role]));
+    world=build(CLUB);worlds.push(world);applyQuality();});
+  // Roles sharing a file (the gold keeper wears the keeper's) share one download. A failed one is forgotten, so the
+  // next call tries again.
+  async function fetchRoles(roles){
+    await ready;
+    for(const role of new Set(roles))if(!assets[role]){
+      const file=ALL_CHARACTERS[role].file;
+      if(!loading.has(file)){const p=load(file);loading.set(file,p);p.catch(()=>{if(loading.get(file)===p)loading.delete(file);});}
+      assets[role]=await loading.get(file);
+    }
+  }
+  let wanted=0;
   // The canvas size is read only when it changes (ResizeObserver), not every frame, so rendering never forces layout.
   const measure=()=>{const r=canvas.getBoundingClientRect();size=[r.width,r.height];};
   const observer=typeof ResizeObserver==='function'?new ResizeObserver(measure):null;observer?.observe(canvas);
+  // Sizes the canvas (when it changed) and steps the quality governor; false while there is nothing to draw into.
+  function fit(){
+    if(!observer||!size)measure();const [w,h]=size;if(!w||!h)return false;
+    const now=performance.now();if(last&&governor.sample(now-last))applyQuality();last=now;
+    if(w!==width||h!==height){width=w;height=h;renderer.setSize(width,height,false);}
+    return true;
+  }
+  function draw(w,state,axis,reduceMotion,shake,aspect){
+    if(aspects.get(w)!==aspect){aspects.set(w,aspect);w.resize(aspect);}
+    w.update(state,axis,reduceMotion,last/1000);w.shake(reduceMotion?0:shake);renderer.render(w.scene,w.camera);
+  }
   return {
     ready,
     get quality(){return governor.tier;},
-    render(state,axis,reduceMotion,shake=0){
-      if(!world)return;if(!observer||!size)measure();const [w,h]=size;if(!w||!h)return;
-      const now=performance.now();if(last&&governor.sample(now-last))applyQuality();last=now;
-      if(w!==width||h!==height){width=w;height=h;renderer.setSize(width,height,false);world.resize(width/height);}
-      world.update(state,axis,reduceMotion,now/1000);world.shake(reduceMotion?0:shake);renderer.render(world.scene,world.camera);
+    preload:fetchRoles,
+    async prepare(list){
+      const ticket=++wanted;await fetchRoles(list.flatMap(c=>[c.near,c.far]));
+      if(ticket!==wanted)return false;
+      list.forEach((c,i)=>{const w=worlds[i];if(!w){worlds[i]=build({near:c.near,far:c.far});return;}
+        const was=casts.get(w);for(const end of ['near','far'])if(was[end]!==c[end])w.setFigure(end,assets[c[end]],ALL_CHARACTERS[c[end]]);
+        casts.set(w,{near:c.near,far:c.far});});
+      world=worlds[0];return true;
     },
-    dispose(){observer?.disconnect();world?.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material]){m.map?.dispose();m.dispose();}}});renderer.dispose();}
+    render(state,axis,reduceMotion,shake=0){
+      if(!world||!fit())return;
+      renderer.setScissorTest(false);renderer.setViewport(0,0,width,height);draw(world,state,axis,reduceMotion,shake,width/height);
+    },
+    // views: [{state, axis, shake}], left to right. renderer.info then counts the whole frame.
+    renderViews(views,reduceMotion){
+      if(!world||!fit())return;
+      while(worlds.length<views.length)worlds.push(build(CLUB));
+      const cw=width/views.length;renderer.info.autoReset=false;renderer.info.reset();renderer.setScissorTest(true);
+      views.forEach((v,i)=>{renderer.setViewport(i*cw,0,cw,height);renderer.setScissor(i*cw,0,cw,height);draw(worlds[i],v.state,v.axis,reduceMotion,v.shake||0,cw/height);});
+      renderer.setScissorTest(false);renderer.info.autoReset=true;
+    },
+    dispose(){observer?.disconnect();for(const w of worlds){releaseObject(w.scene);w.sun.shadow.map?.dispose();}renderer.dispose();}
   };
 }

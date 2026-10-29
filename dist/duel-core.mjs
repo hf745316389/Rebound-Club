@@ -6,14 +6,36 @@
 // and skills, the serve to it and whatever happens at its goal line are decided only where auth[side] is set; elsewhere
 // the ball just flies, and holds at that line until the deciding side's message arrives (applyMessage). Decisions are
 // queued on `outbox` whenever some side is decided elsewhere.
-import {WEAPONS,PACE,RUN,PLAYER_Z,PERFECT_BAND,RALLY_STEP,RALLY_CAP,POWER,SOFT,SPIN_SHARE,GOAL_Z,FAR_WALL,KEEPER_Z,SKILLS,LEVELS,advanceBall,aimAngle} from './core.mjs';
+import {WEAPONS,PACE,RUN,PLAYER_Z,PERFECT_BAND,RALLY_STEP,RALLY_CAP,POWER,SOFT,AIM_SHARE,SPIN_SHARE,GOAL_Z,FAR_WALL,KEEPER_Z,SKILLS,LEVELS,advanceBall,aimAngle} from './core.mjs';
 
 export const COURT=GOAL_Z,OPP_Z=COURT-PLAYER_Z;
 // One fixed court: level 1's ball speed, goal width and colour; first to `goals` wins.
 export const DUEL={goals:5,speed:LEVELS[0].speed,goalHalf:LEVELS[0].goalHalf,color:LEVELS[0].color,serveDelay:.8,goalDelay:1.2};
 export const SIDES=['a','b'],DUEL_ACTIVE=['playing','serving','goal','skill'];
 export const other=side=>side==='a'?'b':'a';
-const W=WEAPONS.glove,SWEET=PLAYER_Z+W.reach*.5,AIM={level:{goalHalf:DUEL.goalHalf}};
+const W=WEAPONS.glove;
+// Fighters: each player picks one before the match. All of them play the single-player glove's rules; each changes a
+// few of its numbers, one clear strength paid for by one clear weakness (allround is the glove itself, the reference).
+// Skills (spin, burst) are the same for everyone. First-round values, tuned with scripts/duel-roster.mjs.
+// width/reach: hit box half width and depth; run: share of RUN; shot: share of every strike's speed; power: the sweet
+// spot's multiplier (POWER for the glove); aim: share of the goal's half width a held direction aims at (AIM_SHARE);
+// energy: share of the energy a strike earns; windup/active/recovery/whiff: swing timings in seconds.
+export const FIGHTERS={
+  allround:{name:'全能',role:'没有短板，上手最快'},
+  power:{name:'重炮',role:'球速快；出拳时机要求更准，脚步沉',shot:1.06,power:1.45,reach:.93,run:.9},
+  speed:{name:'疾风',role:'跑得快，出拳判定久，挥空收得快；球稍轻',run:1.25,active:.15,whiff:.3,shot:.99},
+  wall:{name:'铁壁',role:'击球框深又宽，出拳时机最宽松；球轻，脚慢',reach:1.08,width:1,shot:.92,run:.92},
+  trick:{name:'巧手',role:'能量攒得快、技能放得多，角度刁；普通球稍轻',energy:1.5,aim:.95,shot:.98}
+};
+export const FIGHTER_IDS=Object.keys(FIGHTERS);
+// A fighter's numbers in full, as the rules read them (plain data: it travels inside the match state).
+export function fighterKit(id){
+  const f=FIGHTERS[id]?id:'allround',k={id:f,width:W.width,reach:W.reach,windup:W.windup,active:W.active,recovery:W.recovery,whiff:W.whiff,
+    run:1,shot:1,power:POWER,aim:AIM_SHARE,energy:1,...FIGHTERS[f]};
+  // aimAngle aims at AIM_SHARE of level.goalHalf; this goal half width makes it aim at k.aim of the real one.
+  return {...k,sweet:PLAYER_Z+k.reach*.5,aimLevel:{level:{goalHalf:DUEL.goalHalf*k.aim/AIM_SHARE}}};
+}
+const kitOf=(s,side)=>s.players[side].kit;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),aimSide=axis=>axis<-.5?-1:axis>.5?1:0;
 
 // --- Views ---------------------------------------------------------------------------------------------------------
@@ -32,10 +54,12 @@ const FLY={};
 function flyBall(s,dt){const b=s.ball;if(b.vz>=0)return advanceBall(b,dt);mirrorBall(b,FLY);const w=advanceBall(FLY,dt);mirrorBall(FLY,b);return -w;}
 
 // --- Match ---------------------------------------------------------------------------------------------------------
-function player(x=0){return {x,swing:null,energy:SKILLS.start,held:0,whiff:null,hits:0,lastShot:''};}
-export function createDuel({auth={a:true,b:true}}={}){
-  return {mode:'duel',phase:'ready',previousPhase:null,countdown:DUEL.serveDelay,ball:{x:0,z:PLAYER_Z+.3,vx:0,vz:-DUEL.speed,curve:null,kind:null,z0:PLAYER_Z+.3,z1:SWEET},
-    players:{a:player(),b:player()},score:{a:0,b:0},winner:null,serveTo:'a',serves:0,rally:1,power:false,hitstop:0,flash:0,elapsed:0,boardAngle:0,
+function player(kit){return {x:0,kit,swing:null,energy:SKILLS.start,held:0,whiff:null,hits:0,lastShot:''};}
+// picks: {a, b} fighter ids (FIGHTERS); both copies of a networked match must be created with the same picks.
+export function createDuel({auth={a:true,b:true},picks={}}={}){
+  const a=player(fighterKit(picks.a)),b=player(fighterKit(picks.b));
+  return {mode:'duel',phase:'ready',previousPhase:null,countdown:DUEL.serveDelay,ball:{x:0,z:PLAYER_Z+.3,vx:0,vz:-DUEL.speed,curve:null,kind:null,z0:PLAYER_Z+.3,z1:a.kit.sweet},
+    players:{a,b},score:{a:0,b:0},winner:null,serveTo:'a',serves:0,rally:1,power:false,hitstop:0,flash:0,elapsed:0,boardAngle:0,
     shot:null,shots:0,lastGoal:null,skill:null,skillSeq:0,hold:false,events:[],queued:[],outbox:[],accumulator:0,pose:null,auth:{a:!!auth.a,b:!!auth.b}};
 }
 const netted=s=>!(s.auth.a&&s.auth.b);
@@ -44,7 +68,7 @@ function post(s,msg){if(netted(s))s.outbox.push(msg);}
 // player keeper's serve, seen from the receiver).
 function placeServe(s){
   const rcv=s.serveTo,dir=s.serves%2?-1:1,z=OPP_Z-.3;
-  setBall(s,rcv,{x:clamp(localX(rcv,s.players[other(rcv)].x),-1.5,1.5),z,vx:.65*PACE*dir,vz:-DUEL.speed,curve:null,kind:null,z0:z,z1:SWEET});
+  setBall(s,rcv,{x:clamp(localX(rcv,s.players[other(rcv)].x),-1.5,1.5),z,vx:.65*PACE*dir,vz:-DUEL.speed,curve:null,kind:null,z0:z,z1:kitOf(s,rcv).sweet});
   for(const side of SIDES)s.players[side].swing=null;s.power=false;
 }
 function doServe(s){placeServe(s);s.serves++;s.phase='playing';s.hold=false;s.events.push({type:'serve',side:s.serveTo});post(s,{type:'serve',ball:copyBall(s.ball),serves:s.serves});}
@@ -56,9 +80,9 @@ export function duelAttack(s,side){
   p.swing={time:0,hit:false,armed:null,whiffed:false};s.queued.push({type:'swing',side});return true;
 }
 // The exact rectangle side's swing can connect in (its own view), and the power band inside it.
-function zoneAt(lx){const band=PERFECT_BAND*W.reach*.5;return {left:lx-W.width,right:lx+W.width,near:PLAYER_Z-.12,far:PLAYER_Z+W.reach,sweetNear:SWEET-band,sweetFar:SWEET+band};}
-export function duelHitZone(s,side){return zoneAt(localX(side,s.players[side].x));}
-export function duelBurstZone(s,side){const r=duelHitZone(s,side),lx=localX(side,s.players[side].x),half=W.width*SKILLS.burst.widthScale;return {...r,left:lx-half,right:lx+half,far:r.far+SKILLS.burst.frontExtra};}
+function zoneAt(k,lx){const band=PERFECT_BAND*k.reach*.5;return {left:lx-k.width,right:lx+k.width,near:PLAYER_Z-.12,far:PLAYER_Z+k.reach,sweetNear:k.sweet-band,sweetFar:k.sweet+band};}
+export function duelHitZone(s,side){return zoneAt(kitOf(s,side),localX(side,s.players[side].x));}
+export function duelBurstZone(s,side){const r=duelHitZone(s,side),lx=localX(side,s.players[side].x),half=kitOf(s,side).width*SKILLS.burst.widthScale;return {...r,left:lx-half,right:lx+half,far:r.far+SKILLS.burst.frontExtra};}
 const inRect=(b,r)=>b.x>=r.left&&b.x<=r.right&&b.z>=r.near&&b.z<=r.far;
 function inRange(s,side,l){return s.phase==='playing'&&l.vz<0&&inRect(l,duelHitZone(s,side));}
 
@@ -99,8 +123,8 @@ export function duelSkill(s,side,kind,axis=0){
   const p=s.players[side],id=++s.skillSeq,l=localBall(s,side);p.energy-=SKILLS[kind].cost;
   if(kind==='spin'){
     const {angle,v,curve}=spinShot(s.rally,l.x,l.z,axis,localX(side,s.players[other(side)].x));s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
-    Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-SWEET,kind:'spin',curve});setBall(s,side,l);
-    registerContact(s,side,l,angle,'spin',id,s.queued);p.swing={time:W.windup,hit:true,armed:true,whiffed:false,skill:'spin'};
+    Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-kitOf(s,other(side)).sweet,kind:'spin',curve});setBall(s,side,l);
+    registerContact(s,side,l,angle,'spin',id,s.queued);p.swing={time:p.kit.windup,hit:true,armed:true,whiffed:false,skill:'spin'};
     post(s,hitMsg(s,side,'spin'));
   }else{
     s.skill={kind:'burst',side,id,time:0,x:l.x,z:l.z};s.phase='skill';p.swing=null;s.queued.push({type:'burstStart',side});
@@ -109,31 +133,31 @@ export function duelSkill(s,side,kind,axis=0){
   return {ok:true,id};
 }
 function launchBurst(s,side,axis){
-  const k=s.skill,p=s.players[side],cfg=SKILLS.burst,angle=aimAngle(AIM,k.x,k.z,axis);
+  const k=s.skill,p=s.players[side],cfg=SKILLS.burst,angle=aimAngle(p.kit.aimLevel,k.x,k.z,axis);
   s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);const v=Math.min(cfg.maxSpeed,DUEL.speed*s.rally*cfg.speedScale);
-  const l={x:k.x,z:k.z,vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:k.z,z1:COURT-SWEET,kind:'burst',curve:null};setBall(s,side,l);
+  const l={x:k.x,z:k.z,vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:k.z,z1:COURT-kitOf(s,other(side)).sweet,kind:'burst',curve:null};setBall(s,side,l);
   registerContact(s,side,l,angle,'burst',k.id,s.events);
-  s.skill=null;s.phase='playing';p.swing={time:W.windup+W.active,hit:true,armed:true,whiffed:false,skill:'burst'};
+  s.skill=null;s.phase='playing';p.swing={time:p.kit.windup+p.kit.active,hit:true,armed:true,whiffed:false,skill:'burst'};
   post(s,hitMsg(s,side,'burst'));
 }
 
 // --- Strikes, whiffs, goals -----------------------------------------------------------------------------------------
 function strike(s,side,l,axis){
-  const p=s.players[side],sw=p.swing,t=clamp((l.z-SWEET)/(W.reach*.5),-1,1);
-  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=PERFECT_BAND,angle=aimAngle(AIM,l.x,l.z,axis);
+  const p=s.players[side],k=p.kit,sw=p.swing,t=clamp((l.z-k.sweet)/(k.reach*.5),-1,1);
+  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=PERFECT_BAND,angle=aimAngle(k.aimLevel,l.x,l.z,axis);
   s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
-  const v=DUEL.speed*s.rally*(perfect?POWER:soft?SOFT:1);
-  Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-SWEET,kind:perfect?'perfect':null,curve:null});setBall(s,side,l);
+  const v=DUEL.speed*s.rally*(perfect?k.power:soft?SOFT:1)*k.shot;
+  Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-kitOf(s,other(side)).sweet,kind:perfect?'perfect':null,curve:null});setBall(s,side,l);
   sw.hit=true;s.shots++;s.power=perfect;p.hits++;
   const kind=soft?'soft':perfect?'perfect':['left','straight','right'][aimSide(axis)+1];p.lastShot=kind;
   s.shot={side,x:l.x,z:l.z,angle,kind,at:s.elapsed};s.flash=1;s.hitstop=perfect?.07:.05;
   const event=perfect?'perfect':soft?'soft':'hit';s.events.push({type:event,side});
-  addEnergy(s,side,soft?0:perfect?SKILLS.gainPerfect:SKILLS.gainHit,s.events);
+  addEnergy(s,side,Math.round((soft?0:perfect?SKILLS.gainPerfect:SKILLS.gainHit)*k.energy),s.events);
   post(s,hitMsg(s,side,event));
 }
 // core.mjs whiffReason, in side's view.
-function whiffReason(lx,sw){
-  const r=zoneAt(lx),f=sw.first,l=sw.last,lateral=o=>Math.abs(o.dx)<=W.width;
+function whiffReason(k,lx,sw){
+  const r=zoneAt(k,lx),f=sw.first,l=sw.last,lateral=o=>Math.abs(o.dx)<=k.width;
   if(!f||(!f.inc&&!l.inc))return {reason:'none'};
   if(sw.side)return {reason:'reach',side:sw.side};
   if(l.inc&&l.z>r.far&&lateral(l))return {reason:'early'};
@@ -142,21 +166,21 @@ function whiffReason(lx,sw){
 }
 const L1={},L2={},L3={};
 function movePlayer(s,side,axis,dt){
-  const p=s.players[side],sw=p.swing;p.held=axis;
+  const p=s.players[side],k=p.kit,sw=p.swing;p.held=axis;
   // Planted while a swing can still connect, or while the ball sits in the box (core.mjs tick).
-  if(!(sw&&!sw.hit&&!sw.whiffed)&&!(!sw&&inRange(s,side,localBall(s,side,L1))))p.x=clamp(p.x+localX(side,axis*RUN*dt),-3.45,3.45);
+  if(!(sw&&!sw.hit&&!sw.whiffed)&&!(!sw&&inRange(s,side,localBall(s,side,L1))))p.x=clamp(p.x+localX(side,axis*RUN*k.run*dt),-3.45,3.45);
   if(sw){
     sw.time+=dt;
-    if(!sw.hit&&!sw.whiffed&&sw.time>W.windup+W.active){sw.whiffed=true;p.whiff=whiffReason(localX(side,p.x),sw);s.events.push({type:'whiff',side});}
-    if(sw.time>W.windup+W.active+W.recovery+(sw.whiffed?W.whiff:0))p.swing=null;
+    if(!sw.hit&&!sw.whiffed&&sw.time>k.windup+k.active){sw.whiffed=true;p.whiff=whiffReason(k,localX(side,p.x),sw);s.events.push({type:'whiff',side});}
+    if(sw.time>k.windup+k.active+k.recovery+(sw.whiffed?k.whiff:0))p.swing=null;
   }
 }
 // A player decided elsewhere: its swing clock runs on between position messages, so its punch keeps moving.
-function driftSwing(p,dt){const sw=p.swing;if(!sw)return;sw.time+=dt;if(sw.time>W.windup+W.active+W.recovery+(sw.whiffed?W.whiff:0))p.swing=null;}
+function driftSwing(p,dt){const sw=p.swing,k=p.kit;if(!sw)return;sw.time+=dt;if(sw.time>k.windup+k.active+k.recovery+(sw.whiffed?k.whiff:0))p.swing=null;}
 function watchWindow(s,side){
-  const p=s.players[side],sw=p.swing;if(!sw||sw.hit||sw.time<W.windup||sw.time>W.windup+W.active)return;
-  const l=localBall(s,side,L1),lx=localX(side,p.x),r=zoneAt(lx),dx=l.x-lx,inc=l.vz<0;sw.first??={z:l.z,dx,inc};sw.last={z:l.z,dx,inc};
-  if(inc&&l.z>=r.near&&l.z<=r.far&&Math.abs(dx)>W.width)sw.side=Math.sign(dx);
+  const p=s.players[side],k=p.kit,sw=p.swing;if(!sw||sw.hit||sw.time<k.windup||sw.time>k.windup+k.active)return;
+  const l=localBall(s,side,L1),lx=localX(side,p.x),r=zoneAt(k,lx),dx=l.x-lx,inc=l.vz<0;sw.first??={z:l.z,dx,inc};sw.last={z:l.z,dx,inc};
+  if(inc&&l.z>=r.near&&l.z<=r.far&&Math.abs(dx)>k.width)sw.side=Math.sign(dx);
 }
 function scoreGoal(s,shooter,x,l){
   s.score[shooter]++;s.lastGoal={by:shooter,x,vx:l.vx,vz:l.vz,key:false,n:s.score[shooter]};
@@ -174,7 +198,7 @@ function farEnd(s,shooter,prev,l,wall){
   if(goalX!==null&&Math.abs(goalX)<=DUEL.goalHalf){scoreGoal(s,shooter,goalX,l);return;}
   if(l.z>FAR_WALL){
     l.z=2*FAR_WALL-l.z;const angle=clamp(Math.atan2(l.vx,l.vz)+s.boardAngle,-.76,.76),speed=DUEL.speed*s.rally;
-    Object.assign(l,{vx:Math.sin(angle)*speed,vz:-Math.cos(angle)*speed,z0:l.z,z1:SWEET,curve:null,kind:null});setBall(s,shooter,l);
+    Object.assign(l,{vx:Math.sin(angle)*speed,vz:-Math.cos(angle)*speed,z0:l.z,z1:kitOf(s,shooter).sweet,curve:null,kind:null});setBall(s,shooter,l);
     s.power=false;s.events.push({type:'wide',side:shooter});post(s,{type:'wide',side:shooter,ball:copyBall(s.ball)});
   }
 }
@@ -199,7 +223,7 @@ function tick(s,dt,inputs){
     farEnd(s,shooter,prev,l,wall);return;
   }
   const p=s.players[rcv],sw=p.swing;
-  if(s.auth[rcv]&&sw&&!sw.hit&&sw.time>=W.windup&&sw.time<=W.windup+W.active){
+  if(s.auth[rcv]&&sw&&!sw.hit&&sw.time>=p.kit.windup&&sw.time<=p.kit.windup+p.kit.active){
     const lr=localBall(s,rcv,L1);
     // Whether the ball was already in range when the window opened decides clean hit vs. soft contact.
     if(sw.armed===null)sw.armed=inRange(s,rcv,lr);

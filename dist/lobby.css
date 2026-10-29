@@ -79,3 +79,5 @@ body[data-screen=ready] .lobby-record b{color:#ffd23a}
 body[data-screen=ready] #save-note{color:#ffb38a}
 body[data-screen=ready] .lobby-duel{border-color:#ff6a2b;background:rgba(20,27,56,.88);color:#ffb38a}
 body[data-screen=ready] .lobby-duel:hover{background:#1b2448}
+/* The level keeper's line in the level picker sits right under the lesson. */
+.selection-note.boss-note{margin-top:-16px;font-weight:700}

@@ -27,6 +27,14 @@
       <div class="court-badge"><span class="live-dot"></span><span id="court-status">热身准备</span></div>
       <div class="result-pop" id="result-pop" aria-live="polite"></div>
       <div class="hit-pop" id="hit-pop" aria-live="polite"></div>
+      <div class="split-hud" id="split-hud" hidden>
+        <div class="split-side" id="side-a"><b class="split-tag">1P</b><div class="split-pop" id="pop-a" aria-live="polite"></div>
+          <div class="split-panel"><span class="split-cue" id="cue-a">看准再出手</span><span class="split-energy"><i id="energy-a"></i></span>
+            <span class="split-skills"><span id="spin-a">旋转 Q</span><span id="burst-a">爆发 E</span></span><small class="split-keys">A / D 移动 · 空格挥击</small></div></div>
+        <div class="split-side" id="side-b"><b class="split-tag">2P</b><div class="split-pop" id="pop-b" aria-live="polite"></div>
+          <div class="split-panel"><span class="split-cue" id="cue-b">看准再出手</span><span class="split-energy"><i id="energy-b"></i></span>
+            <span class="split-skills"><span id="spin-b">旋转 ,</span><span id="burst-b">爆发 .</span></span><small class="split-keys">← / → 移动 · ↑ 挥击</small></div></div>
+      </div>
       <div class="overlay" id="overlay" hidden><div class="overlay-content" id="overlay-content"></div></div>
     </div>
     <div class="controls"><div class="move-control" id="move-control" role="group" aria-label="左右移动" aria-describedby="move-hint"><div class="move-buttons"><button type="button" class="move-button" id="move-left" aria-label="向左移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M26 16H6m9-9-9 9 9 9"/></svg></button><button type="button" class="move-button" id="move-right" aria-label="向右移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16h20m-9-9 9 9-9 9"/></svg></button></div><small id="move-hint">按住移动 · 挥击时定方向</small></div><div class="attack-wrap"><span class="attack-hint" id="attack-hint">看准再出手</span><div class="skill-dock" id="skill-dock"><div class="energy" id="energy" role="meter" aria-label="能量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><i id="energy-fill"></i><b class="energy-tick" aria-hidden="true"></b><span id="energy-value">50</span></div><div class="skill-buttons"><button class="skill-button spin" id="skill-spin" aria-label="旋转回击，消耗50能量"><b>旋转<em id="spin-dir"></em></b><small id="spin-key">50 · J</small><span class="skill-state" id="spin-state">待开球</span></button><button class="skill-button burst" id="skill-burst" aria-label="爆发回击，消耗100能量"><b>爆发</b><small id="burst-key">100 · K</small><span class="skill-state" id="burst-state">待开球</span></button></div></div><button id="attack" class="attack-button" aria-label="挥击" disabled><svg viewBox="0 0 48 44" aria-hidden="true"><path d="M13 28c-8-2-9-12-4-15 2-1 5 0 7 3V9c0-4 6-4 6 0V6c0-4 6-4 6 0v2c0-4 6-4 6 0v3c1-4 7-3 7 1v10c0 6-5 10-11 10H17zM17 32v5h14v-5"/></svg><span>挥击</span><small id="attack-key">SPACE</small></button></div></div>
@@ -35,12 +43,16 @@
   <aside class="sidebar prep-panel lobby-menu duel-menu" aria-label="对战设置">
     <div class="duel-group" role="radiogroup" aria-label="对手"><span class="duel-label">对手</span>
       <button type="button" class="duel-choice" data-mode="ai" role="radio" aria-checked="true">对战 AI</button>
-      <button type="button" class="duel-choice" data-mode="local" role="radio" aria-checked="false" id="mode-local">本机双人</button></div>
+      <button type="button" class="duel-choice" data-mode="local" role="radio" aria-checked="false" id="mode-local">本机双人 · 分屏</button></div>
     <div class="duel-group" role="radiogroup" aria-label="网络模拟" id="latency-group"><span class="duel-label">网络模拟</span>
       <button type="button" class="duel-choice" data-latency="0" role="radio" aria-checked="true">0</button>
       <button type="button" class="duel-choice" data-latency="80" role="radio" aria-checked="false">80</button>
       <button type="button" class="duel-choice" data-latency="150" role="radio" aria-checked="false">150</button>
       <button type="button" class="duel-choice" data-latency="250" role="radio" aria-checked="false">250 ms</button></div>
+    <div class="duel-group fighter-group" role="radiogroup" aria-labelledby="pick-a-label" id="pick-a"><span class="duel-label" id="pick-a-label">我的角色</span></div>
+    <p class="fighter-role" id="role-a"></p>
+    <div class="duel-group fighter-group" role="radiogroup" aria-labelledby="pick-b-label" id="pick-b"><span class="duel-label" id="pick-b-label">对手角色</span></div>
+    <p class="fighter-role" id="role-b"></p>
     <p class="duel-keys" id="duel-keys"></p>
     <button class="primary-button start-button" id="start-match" data-action="start">开始对战 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 10 7-10 7Z"/></svg></button>
     <a class="text-button duel-back" href="./index.html">返回单机</a>

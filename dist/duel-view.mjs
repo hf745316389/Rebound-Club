@@ -2,15 +2,19 @@
 // at PLAYER_Z, the opponent stands where the keeper's x is read, and everything is in that player's own view. The scene
 // (scene3d.mjs) draws it as it draws a match, plus `opponent` and `mode:'duel'`; its rule-based hints come from `hints`.
 // The view object for a (duel, side) pair is kept and refreshed in place, since the scene keys its effects on identity.
-import {PLAYER_Z,hitZone,burstZone,spinPreview,predictFlight} from './core.mjs';
-import {DUEL,COURT,other,localBall,localX,duelSwingPreview,duelSkillStatus} from './duel-core.mjs';
+import {PLAYER_Z,spinPreview,predictFlight} from './core.mjs';
+import {DUEL,COURT,other,localBall,localX,duelHitZone,duelBurstZone,duelSwingPreview,duelSkillStatus} from './duel-core.mjs';
 
 const LEVEL={name:'对战',goals:DUEL.goals,goalHalf:DUEL.goalHalf,speed:DUEL.speed,color:DUEL.color};
 const views=new WeakMap();
 function makeView(s,side){
   const v={mode:'duel',side,weapon:'glove',levelIndex:0,level:LEVEL,tutorial:null,practiceLeft:0,ball:{},player:{x:0,z:PLAYER_Z},
-    keeper:{x:0,target:0,dive:0,diveDir:0},opponent:{x:0,swing:null,axis:0},pose:null,poseBox:{px:0,kx:0,bx:0,bz:0},shot:null,lastGoal:null,cache:{shot:null,goal:null}};
-  v.hints={hitZone,burstZone,spinPreview,predictFlight,swingPreview:(view,axis)=>duelSwingPreview(s,side,axis),skillStatus:(view,kind)=>duelSkillStatus(s,side,kind),goalLock:()=>null};
+    keeper:{x:0,target:0,dive:0,diveDir:0},opponent:{x:0,swing:null,axis:0,kit:s.players[other(side)].kit},pose:null,poseBox:{px:0,kx:0,bx:0,bz:0},shot:null,lastGoal:null,cache:{shot:null,goal:null},
+    // Each player's fighter (duel-core FIGHTERS): its box, timings and the swing clock the scene draws from.
+    kit:s.players[side].kit};
+  // The boxes come from the duel's rules, which size them by each player's fighter.
+  v.hints={hitZone:()=>duelHitZone(s,side),burstZone:()=>duelBurstZone(s,side),spinPreview,predictFlight,
+    swingPreview:(view,axis)=>duelSwingPreview(s,side,axis),skillStatus:(view,kind)=>duelSkillStatus(s,side,kind),goalLock:()=>null};
   return v;
 }
 function phaseFor(s,side){

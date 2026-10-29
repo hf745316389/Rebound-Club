@@ -5,12 +5,13 @@ import * as THREE from './vendor/three.module.min.js';
 import {mergeGeometries} from './vendor/BufferGeometryUtils.js';
 import {clone as cloneRig} from './vendor/SkeletonUtils.js';
 import {buildGlove,mergeRigidParts} from './art.mjs';
-import {CHARACTERS} from './characters.mjs';
+import {CHARACTERS,ALL_CHARACTERS} from './characters.mjs';
 
-// Both characters as {scene, animations}; `load(url)` is GLTFLoader.loadAsync in the page and a file parser in tests.
-export async function loadCharacterAssets(load){
-  const out={};
-  for(const [role,c] of Object.entries(CHARACTERS))out[role]=await load(c.file);
+// Characters by role as {scene, animations} (the club's two unless `roles` names others, characters.mjs); `load(url)`
+// is GLTFLoader.loadAsync in the page and a file parser in tests. Roles sharing a file share one load.
+export async function loadCharacterAssets(load,roles=Object.keys(CHARACTERS)){
+  const out={},files=new Map();
+  for(const role of roles){const file=ALL_CHARACTERS[role].file;if(!files.has(file))files.set(file,load(file));out[role]=await files.get(file);}
   return out;
 }
 
@@ -52,16 +53,20 @@ export function addOutline(mesh,mat){
 
 function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2;if(mx===mn)return [0,0,l];const d=mx-mn,s=l>.5?d/(2-mx-mn):d/(mx+mn);
   const h=mx===r?(g-b)/d+(g<b?6:0):mx===g?(b-r)/d+2:(r-g)/d+4;return [h*60,s,l];}
-// Palette swap on the colour atlas, once at load. Without a DOM (node tests) textures are not loaded at all.
+// Palette swap on the colour atlas, once per atlas and rule: every later figure of that role reuses the result (a copy
+// released from the GPU is uploaded again from the same canvas). Without a DOM (node tests) textures are not loaded.
+const recolored=new WeakMap();
 function recolor(tex,rule){
   if(typeof document==='undefined'||!tex?.image)return tex;
+  let byRule=recolored.get(tex);if(!byRule)recolored.set(tex,byRule=new Map());
+  if(byRule.has(rule))return byRule.get(rule);
   const img=tex.image,c=document.createElement('canvas');c.width=img.width;c.height=img.height;const g=c.getContext('2d');g.drawImage(img,0,0);
   const d=g.getImageData(0,0,c.width,c.height),px=d.data,col=new THREE.Color();
   for(let i=0;i<px.length;i+=4){const [h,s,l]=rgb2hsl(px[i]/255,px[i+1]/255,px[i+2]/255),o=rule(h,s,l);if(!o)continue;
     col.setHSL(((o[0]%360)+360)%360/360,Math.min(1,o[1]),Math.min(1,o[2]));px[i]=col.r*255;px[i+1]=col.g*255;px[i+2]=col.b*255;}
   g.putImageData(d,0,0);const t=new THREE.CanvasTexture(c);
   Object.assign(t,{flipY:tex.flipY,colorSpace:THREE.SRGBColorSpace,wrapS:tex.wrapS,wrapT:tex.wrapT,magFilter:tex.magFilter,minFilter:tex.minFilter});
-  return t;
+  byRule.set(rule,t);return t;
 }
 function numberMaterial(text){
   if(typeof document==='undefined')return new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false});

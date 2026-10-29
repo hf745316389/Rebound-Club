@@ -1,15 +1,15 @@
-// Packs the two playable characters into dist/models/ from their source GLBs, keeping only what the game uses:
+// Packs the playable characters (the club's two and the duel-only figures) into dist/models/ from their source GLBs, keeping only what the game uses:
 // the clips listed in dist/characters.mjs and the skinned body meshes (weapons, hats and capes hanging off bones are
 // dropped). Unreferenced accessors and buffer views go too, and the binary chunk is rebuilt compactly. No dependencies.
 //
 // Source (placeholder art): KayKit Character Pack: Adventurers 1.0, CC0, by Kay Lousberg.
 //   https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 at 672074b73ba276876a19e8816ecdc5241817ab47
-//   Copy addons/kaykit_character_pack_adventures/Characters/gltf/{Rogue,Barbarian}.glb and LICENSE.txt from that tree
+//   Copy addons/kaykit_character_pack_adventures/Characters/gltf/{Rogue,Barbarian,Rogue_Hooded,Knight,Mage}.glb and LICENSE.txt from that tree
 //   into vendor-download/kaykit/ (git-ignored), then run:  node scripts/pack-characters.mjs [sourceDir]
 import {readFile,writeFile,mkdir,copyFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {CHARACTERS} from '../dist/characters.mjs';
+import {ALL_CHARACTERS} from '../dist/characters.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const srcDir=path.resolve(process.argv[2]??path.join(root,'vendor-download','kaykit')),outDir=path.join(root,'dist');
@@ -66,7 +66,10 @@ function pack(json,bin,clips){
 
 await mkdir(path.join(outDir,'models'),{recursive:true});
 const report=[];
-for(const [role,c] of Object.entries(CHARACTERS)){
+const done=new Set();
+for(const [role,c] of Object.entries(ALL_CHARACTERS)){
+  // A role dressed differently from the same file (the gold keeper) needs no file of its own.
+  if(done.has(c.file))continue;done.add(c.file);
   const srcFile=path.join(srcDir,c.source),before=await readFile(srcFile);
   const {json,bin}=readGlb(before),packed=pack(json,bin,[...new Set(Object.values(c.clips))]);
   const out=writeGlb(packed.json,packed.bin);await writeFile(path.join(outDir,c.file),out);

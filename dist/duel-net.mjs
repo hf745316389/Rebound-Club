@@ -32,8 +32,9 @@ export function createLoopback({delayMs=0,jitterMs=0,seed=1,now}){
 
 const EASE=.15,BALL_EVENTS=['serve','hit','wide'];
 // now(): this copy's clock in seconds. controller-free: the caller passes this player's input to step().
-export function createClient({side,transport,now,posEvery=1/30,pingEvery=.25}){
-  const opp=other(side),s=createDuel({auth:{[side]:true,[opp]:false}}),inbox=[];
+// picks: both players' fighters ({a, b}), the same on both ends (agreed before the match, like the room itself).
+export function createClient({side,transport,now,picks={},posEvery=1/30,pingEvery=.25}){
+  const opp=other(side),s=createDuel({auth:{[side]:true,[opp]:false},picks}),inbox=[];
   // offset: the other clock minus ours. trips: our recent (arrival − sent); theirs: the other side's smallest, from `mi`.
   const clock={offset:0,rtt:null,trips:[],mine:Infinity,theirs:Infinity},ease={x:0,z:0,left:0},drawn={x:0,z:0};
   let lastPos=-Infinity,lastPing=-Infinity;

@@ -143,6 +143,9 @@ body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .lives{di
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .lives .life{width:20px;height:20px}
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .court-badge{top:calc(var(--top) + 48px);left:50%;transform:translateX(-50%);white-space:nowrap}
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .tutorial-bar{top:calc(var(--top) + 48px)}
+/* Portrait: the verdict banner goes under the status badge / tutorial tip row (top +48px, at most 45px tall when the third
+   tip wraps on a 320px phone) so a serve countdown or the next tutorial step stays readable; landscape moves it left below. */
+body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .result-pop{top:calc(var(--top) + 100px)}
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .controls{display:contents}
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .move-control{position:fixed;left:var(--edge);bottom:var(--bottom);z-index:30;width:auto;min-width:0;max-width:none;margin:0;padding:0}
 body:is([data-screen=match],[data-screen=paused],[data-screen=result]) .move-buttons{display:flex;gap:12px}
