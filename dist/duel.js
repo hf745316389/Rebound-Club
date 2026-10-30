@@ -70,7 +70,8 @@ function stepMatch(dt){
     if(match.resumeAt&&performance.now()/1000>=match.resumeAt){match.resumeAt=null;match.pausedBy=null;match.client.resume();note('resume');uiPhase='';}
     // Over: what is left of the feed goes (its last goal tells the room who won).
     if(match.state.phase==='won'&&!match.fed){match.fed=true;room?.link.feedStop();}
-  }else if(match.mode==='watch')match.watcher.step();
+  // A watched match the room ended before its last goal (onResult) stops there: what is left of its replay stays unplayed.
+  }else if(match.mode==='watch'){if(match.state.phase!=='won')match.watcher.step();}
   else{
     const s=match.state,axes={a:input.axis(),b:axisB()};
     for(const side of ['a','b']){const q=p[side];if(q.skill)duelSkill(s,side,q.skill,axes[side]);else if(q.swing)duelAttack(s,side);q.swing=false;q.skill=null;}
@@ -134,10 +135,11 @@ function phaseUI(){
   else if(phase==='won'){
     const n=names(),win=s.winner,both=shared(),lost=!both&&win!==me(),title=both?`${n[win]}获胜`:lost?'对手赢了':'你赢了',[l,r]=both?['a','b']:[me(),foe()];
     const syncLine=mode==='local'||watching()?'':`<div class='result-subtitle' id='result-sync'>${match.blind?'盲测揭晓：这局用的是':'同步方式：'}「${SYNC_NAMES[match.sync]}」${mode==='ai'?` · 往返 ${latency*2} 毫秒`:''}</div>`;
+    const why=match.how&&match.how!=='score'?`<div class='result-subtitle' id='result-why'>${esc(whyLine(match.how,win,both,n))}</div>`:'';
     const next=mode==='online'?nextInRoom():null;
     const go=next?next.button:`<button class='primary-button' data-action='retry'>再来一局 ${icon('retry')}</button>`;
     const links=mode==='online'?`${next?.back??''}<button class='secondary-button' data-action='leave'>离开房间</button>`:`<button class='secondary-button' data-action='setup'>返回设置</button><a class='secondary-button' href='./index.html'>返回单机</a>`;
-    overlay(`<div class='overlay-symbol ${lost?'loss':''}'>${icon(lost?'retry':'trophy')}</div><span class='eyebrow'>双人对战 · 先进 ${DUEL.goals} 球</span><h3>${esc(title)}</h3><div class='result-score'>${s.score[l]}<small> : ${s.score[r]}</small></div><div class='result-subtitle'>${esc(n[l])} ${s.score[l]} : ${s.score[r]} ${esc(n[r])}</div>${syncLine}${next?.line??''}${go}<div class='result-links'>${links}</div>`);
+    overlay(`<div class='overlay-symbol ${lost?'loss':''}'>${icon(lost?'retry':'trophy')}</div><span class='eyebrow'>双人对战 · 先进 ${DUEL.goals} 球</span><h3>${esc(title)}</h3><div class='result-score'>${s.score[l]}<small> : ${s.score[r]}</small></div><div class='result-subtitle'>${esc(n[l])} ${s.score[l]} : ${s.score[r]} ${esc(n[r])}</div>${why}${syncLine}${next?.line??''}${go}<div class='result-links'>${links}</div>`);
     input.reset();keysB.clear();
   }else $('overlay').hidden=true;
   if(previous!==screen)queueMicrotask(()=>{if(screen==='paused'||screen==='result')$('overlay-content').querySelector('.primary-button')?.focus({preventScroll:true});else if(screen==='match')$('court').focus({preventScroll:true});});
@@ -278,6 +280,10 @@ const RESUME_HOLD=.8,TOKENS='rebound-room-tokens',NAME='rebound-duel-name';
 const ROOM_SAYS={'not-found':'房间不存在或已关闭。',full:'房间已满（最多 8 人）。',expired:'房间已过期。',origin:'这个页面连不上房间。',rate:'开房太频繁，请稍后再试。',
   busy:'房间正忙，请重试。',token:'房间认不出这台设备，请重新加入。',replaced:'这个位置在别的页面打开了。',gone:'和房间的连接断了。',bye:'已离开房间。'};
 const ROTATIONS={loser:'输的下',winner:'赢的下',both:'两个都下'},HOW={forfeit:'掉线判负',ended:'房主结束了这一局',left:'有人中途下场'};
+// Why a match ended before its last goal (the room's result `how`), as its result screen says it: a player calls the
+// other 对方 and itself 你; watching, both are named.
+const WHY={left:'离开了对局',forfeit:'掉线太久',ended:'掉线后房主结束了比赛'};
+function whyLine(how,win,both,n){const lose=win==='a'?'b':'a';return !WHY[how]?'':both?`${n[lose]}${WHY[how]}，判${n[win]}赢。`:win===me()?`对方${WHY[how]}，判你赢。`:`你${WHY[how]}，这一局判负。`;}
 // Each place's token is kept for the tab, so a reload takes the same place back; the name, for the next room on this device.
 const tokens=()=>{try{return JSON.parse(sessionStorage.getItem(TOKENS)||'{}');}catch{return {};}};
 function keepToken(id,token){try{sessionStorage.setItem(TOKENS,JSON.stringify({...tokens(),[id]:token}));}catch{}}
@@ -298,13 +304,15 @@ const readyLeft=()=>{const m=room?.snap?.match;return m?.phase!=='ready'||m.read
 $('online-name').value=savedName();
 
 function openRoom(join){
-  leaveRoom();const link=createLink({join}),r=room={link,info:null,snap:null,snapAt:0,peer:false,n:0,retrying:false,early:[],skipWatch:null};
+  // rejoin: this page taking its place back by token (it was loaded again), looked at on the first snapshot (giveUp);
+  // notice: what the room's line says first, until the next match.
+  leaveRoom();const link=createLink({join}),r=room={link,info:null,snap:null,snapAt:0,peer:false,n:0,retrying:false,early:[],skipWatch:null,rejoin:!!join.token,notice:''};
   // A match's messages from a player who heard the room call it first wait for this page to start it.
   link.onMessage((w,at)=>{if(match?.mode==='online'&&w.n===match.n)match.onGame?.(w.m,at);else if(w.n>r.n&&r.early.length<600)r.early.push({w,at});});
   link.onControl(onControl);
   link.onEvent(e=>{
     if(room!==r)return;
-    if(e.type==='room'){r.snap=e;r.snapAt=performance.now()/1000;arenaSync();if(match?.state.phase==='won')uiPhase='';setupUI();}
+    if(e.type==='room'){r.snap=e;r.snapAt=performance.now()/1000;if(r.rejoin&&r.info){r.rejoin=false;giveUp();}arenaSync();if(match?.state.phase==='won')uiPhase='';setupUI();}
     if(e.type==='start')startArena(e);
     if(e.type==='result')onResult(e);
     if(e.type==='feed'&&watching()&&e.n===match.n)match.watcher.push({side:e.side,msgs:e.msgs,o:e.o,at:performance.now()/1000});
@@ -330,7 +338,7 @@ function leaveRoom(){
 // The room calls a match this page plays: its own copy, sending its messages to the other player and into the feed.
 function startArena({n,sync:used,blind,a,b}){
   const id=myId(),side=a===id?'a':b===id?'b':null;if(!room||!side)return;
-  room.n=n;input.reset();
+  room.n=n;room.notice='';input.reset();
   const now=()=>performance.now()/1000;
   const m={mode:'online',me:side,n,sync:used,blind,foeName:nameOf(side==='a'?b:a),pending:{[side]:{swing:false,skill:null}},onGame:null,pausedBy:null,resumeAt:null,fed:false};
   const transport={send:msg=>{room?.link.send({n,m:msg});room?.link.feedPush(msg);},onMessage:fn=>{m.onGame=fn;},close(){}};
@@ -346,19 +354,30 @@ function arenaSync(){
   if(!match||match.n!==mm.n&&(watching()||match.mode==='online'&&match.state.phase==='won'))startWatch();
 }
 function startWatch(){
-  const s=room.snap,mm=s.match,w=createWatcher({now:()=>performance.now()/1000,score:mm.score});input.reset();
-  match={mode:'watch',n:mm.n,view:'a',names:{a:nameOf(s.court.a)||'甲方',b:nameOf(s.court.b)||'乙方'},watcher:w,state:w.state};
+  const s=room.snap,mm=s.match,w=createWatcher({now:()=>performance.now()/1000,score:mm.score});input.reset();room.notice='';
+  match={mode:'watch',n:mm.n,view:'a',names:{a:nameOf(s.court.a)||'甲方',b:nameOf(s.court.b)||'乙方'},ids:{...s.court},watcher:w,state:w.state};
   uiPhase='';phaseUI();
 }
-// A match over, as the room has it. One this page plays that the room ended (its player left, or was gone too long)
-// ends here as well; anyone not watching it hears who won.
+// A match over, as the room has it. One this page plays or watches that the room ended before its last goal (a player
+// left, or was gone too long) ends here as well, and its result screen says why; anyone not watching it hears who won.
 function onResult(e){
   if(match?.mode==='online'&&match.n===e.n){
-    const s=match.state;if(s.phase!=='won'){s.phase='won';s.winner=e.winner===myId()?match.me:foe();uiPhase='';}
+    const s=match.state;match.how=e.how;if(s.phase!=='won'){s.phase='won';s.winner=e.winner===myId()?match.me:foe();uiPhase='';}
     if(!match.fed){match.fed=true;room?.link.feedStop();}
     return;
   }
-  if(!(watching()&&match.n===e.n))say(`第 ${e.n} 局：${nameOf(e.winner)||'有人'}获胜（${e.score.a} : ${e.score.b}）${e.how==='score'?'':` · ${HOW[e.how]}`}`);
+  // Watching it: the replay, a second behind, ends on the room's score (one played out ends on its own last goal).
+  if(watching()&&match.n===e.n){if(e.how!=='score'){const s=match.state;match.how=e.how;s.score={...e.score};s.winner=e.winner===match.ids.a?'a':'b';s.phase='won';uiPhase='';}return;}
+  say(`第 ${e.n} 局：${nameOf(e.winner)||'有人'}获胜（${e.score.a} : ${e.score.b}）${e.how==='score'?'':` · ${HOW[e.how]}`}`);
+}
+// Back in the room after this page was loaded again mid-match (a reload, or the phone's system dropping a page left in
+// the background): it has no copy of the match to go on with, so it gives the match up at once, as stepping off the
+// court does, and queues for the next one (with nobody queued, that is straight back on the court). Only on the first
+// snapshot: later on, being on the court in a match with none here also happens to a winner back on the room's panel
+// before the loser's last goal has reached the room.
+function giveUp(){
+  const mm=room.snap.match;if(!courtSide()||mm.phase!=='playing')return;
+  room.link.command({type:'watch'});room.link.command({type:'queue'});room.notice='你离开了对局，这一局判负。';
 }
 // Back to the room's panel. From a match this page plays that is not over: stepping off the court, which loses it.
 // From watching: until the next match.
@@ -433,7 +452,7 @@ function roomUI(){
   onlineStatus();
 }
 // The room's line, kept up to date every frame (it counts down the seconds left to say ready).
-function onlineStatus(){const el=$('online-status'),text=statusText();if(el.textContent!==text)el.textContent=text;updateStart();}
+function onlineStatus(){const el=$('online-status'),text=(room?.notice??'')+statusText();if(el.textContent!==text)el.textContent=text;updateStart();}
 function statusText(){
   if(!room)return '';if(room.retrying)return '连接中断，正在重连……';if(!room.info)return '正在连接房间……';
   const s=room.snap;if(!s)return room.info.v===2?'正在进房……':'这个房间是旧版页面开的，请房主刷新页面后重新开房。';

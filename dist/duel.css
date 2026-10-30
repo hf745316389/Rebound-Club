@@ -49,6 +49,8 @@ body[data-screen=result] .watch-bar{display:none}
 #hearts{font-size:13px;font-weight:700;color:var(--gold);white-space:nowrap}
 .duel-unsupported{max-width:320px;margin:0 auto;text-align:center;line-height:1.7}
 @media(max-height:570px) and (min-width:701px){
+  /* Short landscape result cards drop their subtitles (styles.css); why a match ended early still shows. */
+  body[data-screen=result] #result-why{display:block;margin:4px 0 10px}
   body[data-screen=ready] .duel-menu{gap:6px}
   body[data-screen=ready] .duel-choice{height:36px;font-size:12px}
   body[data-screen=ready] .duel-keys{font-size:11px}

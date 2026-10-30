@@ -12,8 +12,11 @@
 //    the guest's 继续 resumes both after the hold. A third page on the invite link is queued and watches the match from
 //    the next serve, without the controls, and can turn the view round. Nobody swings, so the match runs to 5: the
 //    watcher's replay ends on the players' score, the footer tells direct and ping, the loser goes to the back of the
-//    queue and the one queued comes on; when the winner's page goes away mid-match, the other player sees why. No page
-//    errors throughout.
+//    queue and the one queued comes on; when the winner's page goes away mid-match, the other player sees why.
+// 6. In a fresh room of two, one player's page is loaded again mid-match: it gives the match up at once, the other's
+//    result screen says why, and the one who left is called back for the next match. Then the winner back on the room's
+//    panel before the loser's last goal has reached the room (both feeds held 3 s) is still the winner. No page errors
+//    throughout.
 import {createRequire} from 'node:module';import assert from 'node:assert/strict';
 const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
 const {chromium}=require('playwright');
@@ -129,6 +132,37 @@ await won.p.context().close();
 await W.waitForFunction(()=>/对方断开了/.test(document.getElementById('overlay-content').textContent),null,{timeout:15000});
 await W.screenshot({path:'artifacts/duel/online-gone-390x844.png'});
 results.page={code:roomCode,held,scores,footer};
+// 6. A reload mid-match, then a winner back on the panel early.
+const A=await page({width:390,height:844}),B=await page({width:1280,height:800});
+const booted=p=>p.waitForFunction(()=>document.body.dataset.booted==='1',null,{timeout:30000});
+for(const p of [A,B]){await p.goto('http://localhost:4173/duel.html');await booted(p);await p.getByRole('radio',{name:'好友联机'}).click();}
+await A.fill('#online-name','阿杰');await A.getByRole('button',{name:'创建房间',exact:true}).click();
+await A.waitForFunction(()=>/^[2-9A-Z]{5}$/.test(document.getElementById('room-code').textContent),null,{timeout:10000});
+await B.fill('#online-name','小美');await B.fill('#join-code',await A.locator('#room-code').textContent());await B.getByRole('button',{name:'加入',exact:true}).click();
+for(const p of [A,B])await said(p,/轮到你上场/);
+for(const p of [A,B])await p.locator('#start-match').click();
+for(const p of [A,B])await p.waitForFunction(()=>__qa.match()?.mode==='online'&&__qa.match().state.phase==='playing',null,{timeout:15000});
+const reloadAt=Date.now();await B.reload();
+await A.waitForFunction(()=>__qa.match()?.state.phase==='won'&&/对方离开了对局，判你赢/.test(document.getElementById('overlay-content').textContent),null,{timeout:15000});
+const told=(Date.now()-reloadAt)/1000;assert.ok(told<10,`对手 ${told} 秒后才收到结果`);
+await said(B,/^你离开了对局，这一局判负。轮到你上场/);
+const room1=await A.evaluate(()=>{const r=__qa.room(),l=r.snap.last;return {how:l.how,winnerIsMe:l.winner===r.info.member,n:r.snap.match.n,phase:r.snap.match.phase};});
+assert.deepEqual(room1,{how:'left',winnerIsMe:true,n:2,phase:'ready'});
+await A.screenshot({path:'artifacts/duel/online-left-result-390x844.png'});await B.screenshot({path:'artifacts/duel/online-left-room-1280x800.png'});
+// Match 2 to match point; from there every feed pack (the loser's last goal goes in one) waits 3 s on its way to the room.
+await booted(B);await A.getByRole('button',{name:'准备下一局'}).click();await B.locator('#start-match').click();
+for(const p of [A,B])await p.waitForFunction(()=>__qa.match()?.mode==='online'&&__qa.match().n===2&&__qa.match().state.phase==='playing',null,{timeout:15000});
+await A.waitForFunction(()=>Math.max(__qa.match().state.score.a,__qa.match().state.score.b)>=4,null,{timeout:120000});
+for(const p of [A,B])await p.evaluate(()=>{const send=WebSocket.prototype.send;WebSocket.prototype.send=function(d){if(typeof d==='string'&&d.startsWith('{"type":"feed"')){setTimeout(()=>send.call(this,d),3000);return;}return send.call(this,d);};});
+await A.waitForFunction(()=>__qa.match().state.phase==='won',null,{timeout:120000});
+const winner=await A.evaluate(()=>__qa.match().state.winner===__qa.match().me)?A:B;
+await winner.waitForFunction(()=>__qa.match()?.state.phase==='won',null,{timeout:10000});
+assert.equal(await winner.evaluate(()=>__qa.room().snap.match.phase),'playing','房间还没收到最后一球');
+await winner.getByRole('button',{name:'返回房间'}).click();
+await winner.waitForFunction(()=>__qa.room().snap.last?.n===2,null,{timeout:10000});
+const room2=await winner.evaluate(()=>{const r=__qa.room(),l=r.snap.last;return {how:l.how,winnerIsMe:l.winner===r.info.member};});
+assert.deepEqual(room2,{how:'score',winnerIsMe:true},'早回面板的赢家照样是赢家');
+results.left={told,room1,room2};
 assert.deepEqual(errors,[]);
 console.log(JSON.stringify(results,null,1));console.log('PASS');
 await b.close();
