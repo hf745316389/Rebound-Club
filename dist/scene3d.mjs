@@ -226,7 +226,8 @@ export function buildWorld(assets){
   const route=Array.from({length:48},()=>{const d=new THREE.Mesh(dotGeo,routeMat);d.rotation.x=-Math.PI/2;d.visible=false;scene.add(d);return d;});
   // Spin hint: the short arc a spin taken now would follow, from the same physics step as the real flight.
   const spinArc=Array.from({length:16},()=>{const d=new THREE.Mesh(dotGeo,spinMat);d.rotation.x=-Math.PI/2;d.scale.setScalar(1.25);d.renderOrder=6;d.visible=false;scene.add(d);return d;});
-  const target=flat(new THREE.RingGeometry(.3,.42,32),'#7ee08a',.9,.05);target.visible=false;
+  // Depth-tested like the route: the ring lies on the far goal line behind the keeper, so drawn on top it would cover them.
+  const target=flat(new THREE.RingGeometry(.3,.42,32),'#7ee08a',.9,.05);target.material.depthTest=true;target.visible=false;
   // What the keeper covers: drawn at its feet at the true save reach.
   const reachBar=flat(unit,'#9cc8ea',.28,.05);reachBar.scale.set(KEEPER_REACH*2,.38,1);
   // Burst's slightly wider catch frame, shown only while it is affordable, so the extra margin is never hidden.
