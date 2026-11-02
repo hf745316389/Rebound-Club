@@ -20,7 +20,7 @@ test('出手时机决定球路：早出手高吊、正中重炮、晚出手低�
   let s=play(0);incoming(s);swingAt(s,.7,1);assert.equal(s.shot.zone,'top');assert.ok(Math.abs(speed(s.ball)-base(s)*EARLY_SPEED)<1e-6);
   s=play(0);incoming(s);swingAt(s,0,1);assert.equal(s.shot.zone,'mid');assert.ok(Math.abs(speed(s.ball)-base(s)*POWER)<1e-6);
   s=play(0);incoming(s);swingAt(s,-.7,1);assert.equal(s.shot.zone,'low');assert.ok(Math.abs(speed(s.ball)-base(s)*LATE_SPEED)<1e-6);
-  s=play(0);incoming(s);swingAt(s,1.6,1);assert.equal(s.lastShot,'soft');assert.equal(s.shot.zone,'low');assert.ok(Math.abs(speed(s.ball)-base(s)*SOFT)<1e-6);
+  s=play(0);incoming(s);swingAt(s,2,1);assert.equal(s.lastShot,'soft');assert.equal(s.shot.zone,'low');assert.ok(Math.abs(speed(s.ball)-base(s)*SOFT)<1e-6);
   assert.ok(EARLY_SPEED<1&&LATE_SPEED>1&&LATE_SPEED<POWER);
   // From level 3 an early contact with a side held banks, and the bank is a lob too.
   s=play(2);incoming(s);swingAt(s,.7,1);assert.equal(s.lastShot,'bank');assert.equal(s.shot.zone,'top');

@@ -17,6 +17,9 @@ export const LEVELS = [
   {name:'节奏大师',tag:'球更快了，稳住节奏',lesson:'球更快，门将也更快。别一直左右交替，它会摸清你的规律。',goals:4,practice:0,shade:.5,speed:4.7,goalHalf:2.6,keeper:{delay:.45,speed:1.45,error:.45,read:.7,pattern:.5,recover:.8},color:'#8b574d'},
   {name:'守门王牌',tag:'球门变窄，综合运用',lesson:'球门更窄、门将会读招。变向、重炮、旋转都要用上，出手前别暴露方向。',goals:5,practice:0,shade:.6,speed:4.7,goalHalf:2.2,keeper:{delay:.4,speed:1.5,error:.4,read:.8,pattern:.5,recover:.9},color:'#285b54'}
 ].map(l=>({...l,speed:l.speed*PACE,keeper:{...l.keeper,speed:l.keeper.speed*PACE,delay:l.keeper.delay/PACE}}));
+// SWING_GRACE: how long after the swing's window opens a ball may still arrive and meet a clean contact (it lands at
+// the front of the box, an early lob); later than that it can only bump into the glove as a soft ball.
+export const SWING_GRACE=.06;
 // whiff: extra recovery after an empty swing, so mashing leaves gaps the ball can slip through.
 export const WEAPONS = {
   glove:{name:'拳套',subtitle:'快出手 · 灵活补位',width:.9,reach:1,windup:.03,active:.12,recovery:.14,whiff:.5}
@@ -66,6 +69,15 @@ export function playerGear(s){
   const key=s.weapon+'|'+s.style;let g=GEAR.get(key);
   if(!g){const w=WEAPONS[s.weapon],st=styleOf(s);g={...w,width:w.width*(st.width??1),recovery:w.recovery*(st.recovery??1)};GEAR.set(key,g);}
   return g;
+}
+// Power band, measured in time: SWEET_TIME seconds of the incoming ball's flight, so a power shot asks for the same
+// timing at every pace. Until 2026-11-02 it was a fixed 0.3 m: 50 ms at level 1's pace and 35 ms on the fastest balls,
+// the top judgement of a rhythm game. Never narrower than PERFECT_BAND of the half reach, never wider than SWEET_MAX of
+// it, so early and late contacts stay possible. Before a ball comes in, the band is drawn for the next one's speed.
+export const SWEET_TIME=.08,SWEET_MAX=.7;
+export function sweetHalf(s,w=playerGear(s)){
+  const v=s.ball.vz<0?-s.ball.vz:s.level.speed*s.rally,h=w.reach*.5;
+  return clamp(v*SWEET_TIME/2,PERFECT_BAND*h,SWEET_MAX*h);
 }
 // A skill's energy cost for this player: a style may cheapen the spin.
 export function skillCost(s,kind){return kind==='spin'?styleOf(s).spinCost??SKILLS.spin.cost:SKILLS[kind].cost;}
@@ -132,7 +144,7 @@ export function pauseGame(s){if(ACTIVE_PHASES.includes(s.phase)){s.previousPhase
 export function resumeGame(s){if(s.phase==='paused'){s.phase=s.previousPhase||'playing';s.previousPhase=null;}}
 // The exact rectangle a swing can connect in, and the band inside it that yields a power shot.
 export function hitZone(s){
-  const w=playerGear(s),sweet=sweetZ(s,w),band=PERFECT_BAND*w.reach*.5;
+  const w=playerGear(s),sweet=sweetZ(s,w),band=sweetHalf(s,w);
   return {left:s.player.x-w.width,right:s.player.x+w.width,near:s.player.z-.12,far:s.player.z+w.reach,sweetNear:sweet-band,sweetFar:sweet+band};
 }
 export function inHitRange(s){
@@ -174,12 +186,12 @@ function predictSide(s){
   return next*(sure?1:.6);
 }
 function strike(s,w,sw,axis){
-  const b=s.ball,t=clamp((b.z-sweetZ(s,w))/(w.reach*.5),-1,1);
-  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=PERFECT_BAND;
-  const bank=!soft&&t>PERFECT_BAND&&aimSide(axis)!==0&&s.levelIndex>=BANK_FROM&&!s.tutorial;
+  const b=s.ball,half=w.reach*.5,t=clamp((b.z-sweetZ(s,w))/half,-1,1),band=sweetHalf(s,w)/half;
+  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=band;
+  const bank=!soft&&t>band&&aimSide(axis)!==0&&s.levelIndex>=BANK_FROM&&!s.tutorial;
   const angle=bank?bankAngle(s,b.x,b.z,axis):aimAngle(s,b.x,b.z,axis);
   // Timing picks the line (ZONES): early lobs high and slow, the power band drives through the middle, late skims low.
-  const zone=perfect?'mid':!soft&&t>PERFECT_BAND?'top':'low';
+  const zone=perfect?'mid':!soft&&t>band?'top':'low';
   s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
   const v=s.level.speed*s.rally*(perfect?POWER*(styleOf(s).power??1):soft?SOFT:zone==='top'?EARLY_SPEED:LATE_SPEED);
   b.vx=Math.sin(angle)*v;b.vz=Math.cos(angle)*v;launch(b,GOAL_Z,zone);
@@ -439,8 +451,10 @@ function tick(s,dt,axis){
   }
   if(b.vz>0){farEnd(s,prevZ,prevX,wall);return;}
   if(s.swing&&!sw.hit&&sw.time>=w.windup&&sw.time<=w.windup+w.active){
-    // Whether the ball was already in range when the window opened decides clean hit vs. soft contact.
-    if(sw.armed===null)sw.armed=inHitRange(s);
+    // Whether the ball was in range when the window opened decides clean hit vs. soft contact. A press a hair early is
+    // buffered: a ball that comes into range within SWING_GRACE of the window opening still meets a clean swing.
+    const inRange=inHitRange(s);
+    if(sw.armed===null&&(inRange||sw.time-w.windup>SWING_GRACE))sw.armed=inRange;
     if(inHitRange(s)){strike(s,w,sw,axis);return;}
   }
   if(b.z<=0&&s.tutorial){tutorialReset(s,'tutorialRetry');return;}
