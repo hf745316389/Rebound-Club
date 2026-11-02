@@ -60,6 +60,16 @@ test('提示亮度跟随挥击预判：重炮时甜点带高亮，挥空时变�
   assert.ok(kinds.perfect.band>=.8);assert.ok(kinds.whiff.band<.35);assert.ok(kinds.perfect.band>kinds.clean.band);
   assert.equal(kinds.perfect.arrow,true);assert.equal(kinds.clean.arrow,true);assert.equal(kinds.whiff.arrow,false);
 });
+test('来球靠近主角时在最上层画出球的轮廓，压在甜点上时变橙；远处和打出去的球不画',()=>{
+  const w=buildWorld(assets),seen={};
+  for(let z=6;z>1;z-=.01){const s=incomingAt(z);w.update(s,0,true);const p=swingPreview(s);
+    if(w.ballGhost.visible){const ring=w.ballGhost.children.find(m=>m.geometry.type==='RingGeometry');
+      assert.equal(ring.material.depthTest,false);assert.ok(w.ballGhost.position.distanceTo(w.ball.position)<1e-9);
+      (seen[p.kind]??=[]).push(ring.material.color.getHexString());}
+    else assert.ok(z>hitZone(s).far+1.3,`z=${z.toFixed(2)} 应该画出轮廓`);}
+  assert.ok(seen.perfect?.every(c=>c==='ff7a3d'),'甜点时为橙色');assert.ok(seen.clean?.every(c=>c!=='ff7a3d'),'普通击球区不是橙色');
+  const s=incomingAt(2.2);s.ball.vz=5;w.update(s,0,true);assert.equal(w.ballGhost.visible,false,'打出去的球不画轮廓');
+});
 test('射门后显示路线终点：被门将封住为红色，门前空着为绿色',()=>{
   const w=buildWorld(assets),s=createGame(0);startGame(s);stepGame(s,1,0);
   s.ball={x:0,z:3,vx:0,vz:5,z0:2,z1:KEEPER_Z};s.shot={x:0,z:2,angle:0,kind:'perfect',at:s.elapsed};s.keeper.x=0;w.update(s,0,true);
