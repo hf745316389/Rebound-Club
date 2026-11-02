@@ -4,7 +4,7 @@ import {renderShareCard,shareCard} from './share.mjs';
 import {loadProgress,saveProgress,needsTutorial} from './storage.mjs';
 import {create3DRenderer} from './scene3d.mjs';
 import {PLAYERS,playerSpec} from './characters.mjs';
-import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE,ZONE_NAME,styleSummary} from './ui.mjs';
+import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,timingWord,SAVE_WHY,TUTORIAL_TIPS,SKILL_STATE,ZONE_NAME,styleSummary} from './ui.mjs';
 
 const $=id=>document.getElementById(id);
 // In a match tips float over the court as a caption: any change to the feedback line shows it for a few seconds.
@@ -439,7 +439,7 @@ function frame(time){
     if(e==='burstStart'){sound('charge');$('feedback').textContent='蓄力爆发……';}
     if(e==='burstStrike')sound('strike');
     if(e==='burst'){const f=hitFeel(game.weapon,'burst');sound(f.sound,f.intensity);sound('impact');pop('爆发！');shake=Math.max(shake,.08);say('爆发球很快，但正对门将一样会被扑住。');}
-    if(e==='hit'){const bank=game.lastShot==='bank',lob=game.shot.zone==='top';pop(`${bank?(game.shot.angle>0?'借右墙 ↗':'借左墙 ↖'):aim[game.lastShot]||'好球！'} · ${lob?'高吊':'低平'}`);
+    if(e==='hit'){const bank=game.lastShot==='bank',lob=game.shot.zone==='top',off=timingWord(game.shot.timing);pop(`${bank?(game.shot.angle>0?'借右墙 ↗':'借左墙 ↖'):aim[game.lastShot]||'好球！'} · ${lob?'高吊':'低平'}${off?` · ${off}`:''}`);
       if(!teaching)say(bank?'早出手按住方向：球高吊着借那侧的墙弹到另一边，门将要等撞墙才回头。进了算上区 ×3。':lob?'早出手是高吊球：慢一些，门将更容易追上，进了算上区 ×3。':'晚出手是低平快球：最难追，进了算下区 ×1。在橙色甜点正中出手打重炮，算中区 ×2。');}
     if(e==='perfect'){pop(game.chain>1?`重炮！完美 ×${game.chain}`:'重炮！');shake=Math.max(shake,.06);}
     if(['hit','perfect','soft','spin','burst'].includes(e)&&game.shot?.fire){pop('火球！');sound('impact');shake=Math.max(shake,.08);}
@@ -450,7 +450,7 @@ function frame(time){
     if(e==='whiff'){pop(whiffHint(game.whiff),true);say({early:'球还没到框里就挥了，等影子进框再按。',late:'球已经过了身位，下次早一点出手。',reach:'球在框外，先移到影子上再挥击。',none:'现在没有来球，等球飞回来。'}[game.whiff?.reason]||'这次没碰到球，看框亮起再出手。');}
     if(e==='tutorialStep'){verdict('好球！下一步','good');}
     if(e==='tutorialRetry'){verdict('再来一球','info');}
-    if(e==='save'){verdict(teaching?'门将挡住了 · 按住空的一侧再挥击':game.lastShot==='perfect'?'重炮被扑住 · 门将封住了这条线':'被扑住 · 门将封住了这条线','bad');shake=Math.max(shake,.03);if(!teaching)say('终点变红说明门将挡在那条线上。挥击时按住另一侧方向键，或用旋转绕开它。');}
+    if(e==='save'){const why=SAVE_WHY[game.saveCause]||SAVE_WHY.body;verdict(teaching?'门将挡住了 · 按住空的一侧再挥击':`${game.lastShot==='perfect'?'重炮':''}${why[0]}`,'bad');shake=Math.max(shake,.03);if(!teaching)say(why[1]);}
     // The winning goal's camera shot plays out before the result card covers the court.
     if(e==='goal'&&game.phase==='won')resultAt=performance.now()+1000*(reduceMotion?.3:game.lastGoal?.key?GOAL_CAM.hold+GOAL_CAM.back:.6);
     if(e==='goal'&&!teaching){const g=game.lastGoal,banks=g?.banks||0,zone=ZONES[g?.zone],what=g?.fire?'火球破门':banks?`${banks>1?'两次':''}借墙破门`:game.lastShot==='perfect'?'重炮破门':'进球';

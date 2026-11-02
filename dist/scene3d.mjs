@@ -272,6 +272,10 @@ export function buildWorld(assets){
   const sparkList=Array.from({length:22},(_,i)=>{const m=new THREE.Mesh(sparkGeo,sparkMat);m.userData={a:i*2.39996,r:.42+(i*37%10)/22,o:i*.137%1};sparks.add(m);return m;});
   const handGlow=new THREE.Mesh(new THREE.SphereGeometry(.27,16,12),glow('#ff9a3c'));handGlow.visible=false;gear.glove.add(handGlow);
   const halo=new THREE.Mesh(new THREE.RingGeometry(.36,.46,36),glow('#fff1b0',{depthTest:false}));halo.renderOrder=7;halo.visible=false;scene.add(halo);
+  // From behind, the defender's own body hides the incoming ball right where the swing is timed. Near the defender the
+  // ball is drawn again on top of everything: a ring with a faint fill, orange while a swing now would be a power shot.
+  const ghostRing=new THREE.Mesh(new THREE.RingGeometry(.25,.31,32),glow('#fff1c0',{depthTest:false})),ghostFill=new THREE.Mesh(new THREE.CircleGeometry(.25,32),glow('#fff1c0',{depthTest:false}));
+  const ballGhost=new THREE.Group();ghostRing.renderOrder=ghostFill.renderOrder=7;ballGhost.add(ghostFill,ghostRing);ballGhost.visible=false;scene.add(ballGhost);
   const shock=new THREE.Mesh(new THREE.RingGeometry(.8,.98,56),glow('#ffb347'));shock.rotation.x=-Math.PI/2;shock.visible=false;scene.add(shock);
   function screenTexture(draw,w=512,h=512){if(typeof document==='undefined')return null;const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);const tx=new THREE.CanvasTexture(c);tx.colorSpace=THREE.SRGBColorSpace;return tx;}
   const screenLayer=(map,color,order)=>{const m=new THREE.Mesh(unit,glow(color,{map,depthTest:false}));m.renderOrder=order;m.frustumCulled=false;m.visible=false;return m;};
@@ -586,6 +590,11 @@ export function buildWorld(assets){
     for(const edge of zone.edges){edge.material.color.set(edgeColor);edge.material.opacity=edgeOpacity*dim;}
     const showHints=['playing','serving','miss','goal','paused'].includes(s.phase);
     for(const m of [zone.fill,zone.band,...zone.edges])m.visible=showHints;
+    // The see-through ball fades in over the last ~0.9 m before the hit box and stays until the ball goes past.
+    const ghostW=incoming&&ball.visible&&s.ball.z>s.player.z-.7?Math.min(1,Math.max(0,(r.far+1.4-s.ball.z)/.9)):0;
+    ballGhost.visible=ghostW>0&&showHints;
+    if(ballGhost.visible){const hot=p.kind==='perfect'?'#ff7a3d':'#fff1c0';ballGhost.position.copy(ball.position);ballGhost.quaternion.copy(camera.quaternion);
+      ghostRing.material.color.set(hot);ghostFill.material.color.set(hot);ghostRing.material.opacity=.9*ghostW;ghostFill.material.opacity=.3*ghostW;}
     // Before the swing: where pressing now would send the ball. Just after it: where it actually went.
     const recent=s.shot&&s.elapsed-s.shot.at<.6&&s.ball.vz>0;
     const arrow=p.kind==='clean'||p.kind==='perfect'?{x:p.x,z:p.z,angle:p.angle,kind:p.kind}:recent?s.shot:null;
@@ -733,7 +742,7 @@ export function buildWorld(assets){
    if(amount>0)camera.position.add(jolt.set(Math.random()-.5,(Math.random()-.5)*.6,Math.random()-.5).multiplyScalar(amount));}
   function project(x,z,height=.73){camera.updateMatrixWorld(true);const p=new THREE.Vector3(x,height,-z).project(camera);return {x:(p.x+1)*.5,y:(1-p.y)*.5};}
   buildFarGoal(LEVELS[0].goalHalf);resize(.85);
-  return {scene,camera,sun,hero,keeper,actors:{striker,goalie},punch:PUNCH,led:{get offset(){return ledOffset;}},confetti,cameraFollow:FOLLOW,farGoal,nearGoal:goal,ball,platform,gear,zone,aim,target,reachBar,fx,spinArc,burstEdges,chargeRing,burstFx,trail,wallFx,crowd,sign,cine,goalCam,goalCamPose:GC_POSE,update,project,resize,shake};
+  return {scene,camera,sun,hero,keeper,actors:{striker,goalie},punch:PUNCH,led:{get offset(){return ledOffset;}},confetti,cameraFollow:FOLLOW,farGoal,nearGoal:goal,ball,ballGhost,platform,gear,zone,aim,target,reachBar,fx,spinArc,burstEdges,chargeRing,burstFx,trail,wallFx,crowd,sign,cine,goalCam,goalCamPose:GC_POSE,update,project,resize,shake};
 }
 
 // Adaptive quality: sustained slow frames step the renderer down one tier at a time. It never steps back up within a

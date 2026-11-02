@@ -25,8 +25,8 @@ test('正中出手照旧是重炮，框后段出手按方向照旧直接打角',
 test('前两关、不按方向、软球都不借墙',()=>{
   for(const level of [0,1]){const s=play(level);incoming(s);swingAt(s,.7,1);assert.equal(s.lastShot,'right');assert.equal(predictFlight(s).wall,null);}
   let s=play(2);incoming(s);swingAt(s,.7,0);assert.equal(s.lastShot,'straight');assert.equal(predictFlight(s).wall,null);
-  // Swinging before the ball reaches the box gives a soft contact: aimed, never banked.
-  s=play(2);incoming(s);swingAt(s,1.6,1);assert.equal(s.lastShot,'soft');assert.equal(predictFlight(s).wall,null);
+  // Swinging well before the ball reaches the box (past the swing grace) gives a soft contact: aimed, never banked.
+  s=play(2);incoming(s);swingAt(s,2,1);assert.equal(s.lastShot,'soft');assert.equal(predictFlight(s).wall,null);
 });
 // Sends the ball from (0, 4) so its straight line crosses the goal line at `raw` (folded by the walls), keeper out of reach.
 // The shot carries no height zone, so the bank tier alone is scored (zones.test.mjs multiplies it).

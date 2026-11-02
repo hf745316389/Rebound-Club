@@ -24,7 +24,7 @@ test('完美连击：连续打在甜点上累计，打早、打晚、软球都�
   for(let i=1;i<=2;i++){hit(s,0);assert.equal(s.lastShot,'perfect');assert.equal(s.chain,i);}
   hit(s,-.7);assert.equal(s.chain,0,'晚出手断');
   hit(s,0);hit(s,.7);assert.equal(s.chain,0,'早出手断');
-  hit(s,0);hit(s,1.6);assert.equal(s.lastShot,'soft');assert.equal(s.chain,0,'软球断');
+  hit(s,0);hit(s,2.4);assert.equal(s.lastShot,'soft');assert.equal(s.chain,0,'软球断');
 });
 test('进球、被扑不断连击；丢球断连击',()=>{
   const s=play();hit(s,0);assert.equal(resolve(s,3).result,'goal');assert.equal(s.chain,1,'进球不断');

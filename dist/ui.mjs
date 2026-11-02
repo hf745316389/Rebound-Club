@@ -67,6 +67,15 @@ export function whiffHint(w){
   if(!w)return '挥空';
   return {early:'太早了 · 等球进框',late:'太晚了 · 球已过身',reach:w.side>0?'够不着 · 球在右边':'够不着 · 球在左边',none:'没有来球'}[w.reason]||'挥空';
 }
+// Contact timing against the power band (core.mjs s.shot.timing: ms outside the band, + early, − late; 0 says nothing).
+export function timingWord(ms){return ms>0?`早 ${ms} 毫秒`:ms<0?`晚 ${-ms} 毫秒`:'';}
+// Why a shot was saved (core.mjs saveCause): the capsule line, then the subtitle saying what to try instead.
+export const SAVE_WHY={
+  read:['被扑住 · 门将看到了你提前按的方向','球进框后按住的方向会被门将看到。挥击那一刻再按方向，或先按反方向骗它。'],
+  pattern:['被扑住 · 门将摸清了你的规律','它在猜你下一球打哪边。别总打同一边，也别一直左右交替。'],
+  body:['被扑住 · 正打在门将身上','终点变红说明门将挡在那条线上。挥击时按住另一侧方向键，或用旋转绕开它。'],
+  chase:['被扑住 · 门将追上了这球','球不够快或不够靠边：在橙色甜点出手打重炮，或往离门将远的那侧打。']
+};
 // One short line per tutorial step; shown only while that step is active.
 // Short state labels for the skill buttons; text, not just colour.
 export const SKILL_STATE={ok:'可释放',energy:'能量不足',window:'等球进框',busy:'收招中',charging:'蓄力中',state:'待开球',tutorial:'教学中'};

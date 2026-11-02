@@ -6,7 +6,7 @@ function play(level=0,weapon='glove'){const s=createGame(level,weapon);startGame
 function incoming(s,x=0,z=4){const v=s.level.speed*s.rally;s.ball={x,z,vx:0,vz:-v,z0:z,z1:PLAYER_Z};s.player.x=x;s.hitstop=0;}
 const sweet=s=>PLAYER_Z+WEAPONS[s.weapon].reach*.5;
 function swingAt(s,z){const w=WEAPONS[s.weapon];for(let i=0;i<2000&&s.ball.z>z+Math.abs(s.ball.vz)*w.windup;i++)stepGame(s,1/120,0);attack(s);for(let i=0;i<30&&s.ball.vz<0&&!s.misses;i++)stepGame(s,1/120,0);}
-function softAt(s){const w=WEAPONS[s.weapon],front=PLAYER_Z+w.reach,v=Math.abs(s.ball.vz);for(let i=0;i<2000&&s.ball.z>front+v*(w.windup+w.active*.5);i++)stepGame(s,1/120,0);attack(s);for(let i=0;i<60&&s.ball.vz<0;i++)stepGame(s,1/120,0);}
+function softAt(s){const w=WEAPONS[s.weapon],front=PLAYER_Z+w.reach,v=Math.abs(s.ball.vz);for(let i=0;i<2000&&s.ball.z>front+v*(w.windup+w.active*.8);i++)stepGame(s,1/120,0);attack(s);for(let i=0;i<60&&s.ball.vz<0;i++)stepGame(s,1/120,0);}
 // Runs until the shot is resolved at the far end: returns 'goal', 'save' or 'wall'.
 function resolve(s){const goals=s.goals;for(let i=0;i<1200;i++){stepGame(s,1/120,0);if(s.goals>goals)return 'goal';if(s.ball.vz<0)return s.keeper.dive>0?'save':'wall';}return 'none';}
 
