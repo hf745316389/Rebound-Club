@@ -39,6 +39,10 @@
       <button type="button" class="duel-choice" data-mode="ai" role="radio" aria-checked="true">对战 AI</button>
       <button type="button" class="duel-choice" data-mode="online" role="radio" aria-checked="false">好友联机</button>
       <button type="button" class="duel-choice" data-mode="local" role="radio" aria-checked="false" id="mode-local">本机双人</button></div>
+    <!-- data-figure: this player's figure (characters.mjs PLAYERS, the club's saved pick); data-rival: the other side's
+         against the AI or on one keyboard. duel.js adds the buttons. -->
+    <div class="duel-group" role="radiogroup" aria-label="我的人物" id="figure-group"><span class="duel-label">我的人物 · <span id="figure-style"></span></span></div>
+    <div class="duel-group" role="radiogroup" aria-label="对手人物" id="rival-group"><span class="duel-label" id="rival-label">对手人物</span></div>
     <!-- data-bot: the AI's level (duel-bot.mjs BOT_LEVELS). -->
     <div class="duel-group" role="radiogroup" aria-label="AI 难度" id="bot-group"><span class="duel-label">AI 难度</span>
       <button type="button" class="duel-choice" data-bot="easy" role="radio" aria-checked="false">简单</button>

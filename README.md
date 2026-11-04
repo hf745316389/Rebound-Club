@@ -47,6 +47,11 @@ npm start
   - 同步：谁的触球谁判定，击球消息带上击球方的 `streak` 和变化（`notes`），丢球方的进球消息带上双方的 `streak` 和断连长度、原因；观战端走同一个 `applyMessage`。
   - 对战页：右上角是自己的连击数、倍率和积分，下面一行是攒火球的完美进度（或「甜点 ×N」「火球就绪」「恢复 N」），对手连到 5 以上再多一行；里程碑、甜点状态、火球、破火、断连都有提示。结算页显示双方积分，可展开「本局数据」（最高、平均连击，完美率，甜点、火球、破火次数，断连原因）。每局的这些数字只存在本机（`localStorage` 的 `rebound-duel-stats-v1`，最近 50 局），用来以后调 `COMBO`。
   - AI 难度（对战 AI 时可选，`duel-bot.mjs` 的 `BOT_LEVELS`）：简单 / 普通 / 困难，主要差在每球是否等完美时机（`greedy`）和反应、看错球的概率；实测完美率约 24% / 36% / 49%，对困难的胜率约 14% / 31% / 49%。困难就是原来调好的 AI，也是 `createBot` 的默认值（测试和联机检查用它）。
+- 人物（`duel-core.mjs` 的 `duelFigure`；人物在 `characters.mjs` 的 `PLAYERS`，风格在 `core.mjs` 的 `STYLES`）：
+  - 设置页选「我的人物」，和大厅共用存档里的选择；对战 AI 和本机双人另选「对手人物」（远端），默认随机，每局重抽。
+  - 每名玩家按自己人物的风格打：跑速、接球框宽度、收招和旋转消耗和单机一样；重炮球速的加减只算三成（`DUEL.stylePower`，大胡子 +3%、法师 −1.5%）。对战里重炮就是进攻本身：按单机的 ±10%，困难 AI 对游侠各打 600 局，大胡子胜 65%、法师 41%；调成三成后五个人物都在 46%–54%。设置页的说明写的是对战里的数。
+  - 远端画的是对手的人物，换成客队蓝色队服、深藏青拳套、背号 02（`characters.mjs` 的 `rivalSpec`）；对战页不再加载门将模型。
+  - 同步：人物随每条 `pos` 消息（`fig`）发出，对方副本和观战端收到就换（不认识的人物不改）。擂台房配对时和对手上线时，还用点对点控制消息（`{type:'figure'}`）先告诉对手，开局前远端就换好。服务端不用改。本机统计里也记下双方人物。
 - 文件：`dist/duel-core.mjs`（规则，参数在 `DUEL`）、`duel-bot.mjs`（只通过输入行动的 AI）、`duel-view.mjs`（翻成「我在近端」的单机形状交给 `scene3d`）、`duel-net.mjs`（消息、追帧、回环、`createClient`）、`duel.html/js/css`；`scene3d.mjs` 的 `buildWorld(assets,{duel:true})` 让远端角色出拳、近端球门与远端同宽；音效在 `sfx.mjs`，单机与对战共用。
 - 检查：`tests/duel-*.test.mjs`，`node scripts/duel-qa.mjs`（需要本地服务），`node scripts/duel-balance.mjs [局数] [种子]`（两个 AI 整局对打的观察数据，同参数输出逐字相同）。
 
@@ -138,7 +143,7 @@ node scripts/keeper-balance.mjs
 - `dist/art.mjs`：拳套、确定性草地与铺装纹理、立体球网与零件合并；全部本地生成。`vendor/RoundedBoxGeometry.js`来自同版本Three.js官方插件，沿用MIT许可。
 - `dist/crowd.mjs`：远端卡通观众（卡通着色、俱乐部配色），沿用确定性座位表，以8个无投影实例批次绘制服装、五官、3种发型/帽子及关节手臂；进球时错开鼓掌/挥手和跳起，使用场景时钟，暂停与减少动态效果均受控。`scripts/crowd-qa.mjs`输出实际观众近景。
 - 球员：`dist/characters.mjs` 是唯一的角色配置（模型、身高、换色、背号、手套、骨骼与动作片段映射），换模型只改它并重跑 `node scripts/pack-characters.mjs`（从 `vendor-download/kaykit/` 的原始 GLB 只保留用到的动作与身体，输出 `dist/models/`；当前占位角色为 KayKit Adventurers，CC0）。`dist/actor.mjs`：合并蒙皮身体、卡通着色与描边、背号与拳套，按规则状态给出的片段时间求姿态（暂停、顿帧时定格），再叠加看球、前倾、屈膝、手臂瞄准与贴地修正。门将 1.85 米是占位角色上身过长的折中：被晃过的全力飞扑须停在 1.6 米伸展以内，换成腿更长的角色后可放大。
-- 选人：大厅「人物」可在 5 个 KayKit 角色（游侠、兜帽侠、大胡子、骑士、法师，`characters.mjs` 的 `PLAYERS`）里选自己的人物，都穿橙色队服；门将不变。每个人物打一种风格（`characters.mjs` 的 `style`，数值在 `core.mjs` 的 `STYLES`），一项小长处配一项小代价，只在单机生效：游侠均衡（不变）；兜帽侠灵活，移动 ×1.1、接球框宽 ×0.95；大胡子重拳，重炮球速 ×1.1、收招 ×1.4；法师技巧，「旋转」40 能量（原 50）、重炮球速 ×0.95；骑士守护，接球框宽 ×1.1、移动 ×0.95。规则按存档里选的人物算（2D 画面也一样），接球框按风格画，旋转按钮和能量条刻度跟着旋转耗能走；选人界面标出类型和长处/代价（`ui.mjs` 的 `styleSummary` 从数值生成）。选择存进存档（`player` 字段），页面只加载选中的那个模型，换人时重建 3D 场景（`create3DRenderer` 的 `setPlayer`），模型加载失败退回游侠。大胡子、骑士、法师保留帽子（`hat`，原色、不换色；法师帽 0.65 倍，`tests/players.test.mjs` 检查帽子不新增遮挡）。重新打包：`node scripts/pack-characters.mjs <素材包的 Characters/gltf 目录>`；头像：`node scripts/make-portraits.mjs`（需要本地服务）；浏览器验收：`node scripts/player-qa.mjs`。
+- 选人：大厅「人物」可在 5 个 KayKit 角色（游侠、兜帽侠、大胡子、骑士、法师，`characters.mjs` 的 `PLAYERS`）里选自己的人物，都穿橙色队服；门将不变。每个人物打一种风格（`characters.mjs` 的 `style`，数值在 `core.mjs` 的 `STYLES`），一项小长处配一项小代价，单机和对战都生效（对战里重炮球速的加减只算三成，见对战一节）：游侠均衡（不变）；兜帽侠灵活，移动 ×1.1、接球框宽 ×0.95；大胡子重拳，重炮球速 ×1.1、收招 ×1.4；法师技巧，「旋转」40 能量（原 50）、重炮球速 ×0.95；骑士守护，接球框宽 ×1.1、移动 ×0.95。规则按存档里选的人物算（2D 画面也一样），接球框按风格画，旋转按钮和能量条刻度跟着旋转耗能走；选人界面标出类型和长处/代价（`ui.mjs` 的 `styleSummary` 从数值生成）。选择存进存档（`player` 字段），页面只加载选中的那个模型，换人时重建 3D 场景（`create3DRenderer` 的 `setPlayer`），模型加载失败退回游侠。大胡子、骑士、法师保留帽子（`hat`，原色、不换色；法师帽 0.65 倍，`tests/players.test.mjs` 检查帽子不新增遮挡）。重新打包：`node scripts/pack-characters.mjs <素材包的 Characters/gltf 目录>`；头像：`node scripts/make-portraits.mjs`（需要本地服务）；浏览器验收：`node scripts/player-qa.mjs`。
 - `scripts/art-qa.mjs`：用实际资源渲染两名角色的待机、出拳与飞扑近景（`artifacts/character-sheet.png`）；`scripts/arena-qa.mjs`：竖屏/横屏的大厅、对局、进球截图，以及模型加载失败时退回 2D 的检查。均输出到忽略的 `artifacts/`，不向游戏加入测试入口。
 - `dist/input.mjs`、`storage.mjs`：输入隔离与保存降级。
 - `tests/`：Node 行为测试（`tests/helpers/characters.mjs` 去掉贴图后加载发布用的角色文件）；`scripts/serve.mjs`：本地静态服务器。

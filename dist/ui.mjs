@@ -6,9 +6,11 @@ export const MISS_CAUSE={early:'出手太早',late:'出手太晚',reach:'没跑�
 export const ZONE_NAME={low:'下区',mid:'中区',top:'上区'};
 // Player style names (core.mjs STYLES).
 const STYLE_NAME={balanced:'均衡',agile:'灵活',power:'重拳',skill:'技巧',guard:'守护'};
-// What a style changes, in words worked out from its numbers: its strengths, then its costs.
-export function styleSummary(id){
-  const st=STYLES[id]??STYLES.balanced,pct=v=>`${Math.round(Math.abs(v-1)*100)}%`,good=[],bad=[];
+// What a style changes, in words worked out from its numbers: its strengths, then its costs. powerShare: the share of its
+// power-shot change in play (a duel keeps less, duel-core.mjs DUEL.stylePower).
+export function styleSummary(id,{powerShare=1}={}){
+  const st0=STYLES[id]??STYLES.balanced,st=st0.power?{...st0,power:1+(st0.power-1)*powerShare}:st0;
+  const pct=v=>`${+(Math.abs(v-1)*100).toFixed(1)}%`,good=[],bad=[];
   if(st.run)(st.run>1?good:bad).push(`移动${st.run>1?'快':'慢'} ${pct(st.run)}`);
   if(st.width)(st.width>1?good:bad).push(`接球框${st.width>1?'宽':'窄'} ${pct(st.width)}`);
   if(st.power)(st.power>1?good:bad).push(`重炮球速 ${st.power>1?'+':'−'}${pct(st.power)}`);
@@ -16,6 +18,8 @@ export function styleSummary(id){
   if(st.recovery)(st.recovery<1?good:bad).push(`收招${st.recovery>1?'慢':'快'} ${pct(st.recovery)}`);
   return {name:STYLE_NAME[STYLES[id]?id:'balanced'],good,bad};
 }
+// A style in one line, as the lobby and the duel page show it: its strengths and costs, or that it plays standard.
+export function styleText(id,opts){const s=styleSummary(id,opts);return s.good.length?`${s.name}：${s.good.join('，')}；代价：${s.bad.join('，')}`:`${s.name}：标准手感，没有长处也没有代价`;}
 export function createMatchStats(){return {powerHits:0,powerGoals:0,saves:0,whiffs:0,practiceConceded:0,spinShots:0,spinGoals:0,burstShots:0,burstGoals:0,bankGoals:0,fireGoals:0,
   missCauses:Object.fromEntries(Object.keys(MISS_CAUSE).map(k=>[k,0]))};}
 export function recordMatchEvent(stats,event,state){

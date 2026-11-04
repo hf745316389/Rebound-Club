@@ -8,6 +8,8 @@
 .duel-choice:hover{background:#1b2448}
 .duel-choice[aria-checked=true]{border-color:var(--orange);background:#2a1d2a;color:#fff;box-shadow:inset 0 0 0 1px var(--orange)}
 .duel-choice[hidden]{display:none}
+/* Figure names run to three characters; six of them share a row on a phone. */
+.duel-choice.figure{padding:0 4px;font-size:13px}
 .duel-keys{margin:0;font-size:12px;line-height:1.6;color:var(--muted)}
 .duel-keys b{color:var(--ink);font-weight:700}
 .duel-back{justify-self:center;font-size:12px}

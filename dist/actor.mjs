@@ -9,12 +9,13 @@ import {CHARACTERS,DEFAULT_PLAYER,playerSpec} from './characters.mjs';
 
 // Both characters as {scene, animations}; `load(url)` is GLTFLoader.loadAsync in the page and a file parser in tests.
 // `player` picks the striker's figure (characters.mjs PLAYERS); if its file fails, the default figure is loaded instead.
-// The result says which figure it holds (`player`).
-export async function loadCharacterAssets(load,{player=DEFAULT_PLAYER}={}){
-  const keeper=await load(CHARACTERS.keeper.file);
-  let spec=playerSpec(player),striker;
-  try{striker=await load(spec.file);}catch(e){if(spec.id===DEFAULT_PLAYER)throw e;spec=playerSpec(DEFAULT_PLAYER);striker=await load(spec.file);}
-  return {striker,keeper,player:spec.id};
+// The result says which figure it holds (`player`). `rival` (the duel): the far player is a figure too, loaded the same
+// way into `rivalFigure` (its id in `rival`), and the keeper is not loaded at all.
+export async function loadCharacterAssets(load,{player=DEFAULT_PLAYER,rival=null}={}){
+  const figure=async id=>{const spec=playerSpec(id);try{return [spec.id,await load(spec.file)];}catch(e){if(spec.id===DEFAULT_PLAYER)throw e;return [DEFAULT_PLAYER,await load(playerSpec(DEFAULT_PLAYER).file)];}};
+  const [id,striker]=await figure(player);
+  if(rival!==null){const [rid,rivalFigure]=await figure(rival);return {striker,keeper:null,player:id,rivalFigure,rival:rid};}
+  return {striker,keeper:await load(CHARACTERS.keeper.file),player:id};
 }
 
 const toonRamp=(()=>{const t=new THREE.DataTexture(new Uint8Array([110,190,255]),3,1,THREE.RedFormat);t.minFilter=t.magFilter=THREE.NearestFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;})();
