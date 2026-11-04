@@ -6,7 +6,10 @@
 // and skills, the serve to it and whatever happens at its goal line are decided only where auth[side] is set; elsewhere
 // the ball just flies, and holds at that line until the deciding side's message arrives (applyMessage). Decisions are
 // queued on `outbox` whenever some side is decided elsewhere.
+// Combo sweet spot (combo.mjs): each player's streak lives in `players[side].streak`. It changes only where that
+// player's contacts and goal line are decided, and rides on the hit and goal messages to the other copy.
 import {WEAPONS,PACE,RUN,PLAYER_Z,PERFECT_BAND,RALLY_STEP,RALLY_CAP,POWER,SOFT,SPIN_SHARE,GOAL_Z,FAR_WALL,KEEPER_Z,SKILLS,LEVELS,advanceBall,aimAngle} from './core.mjs';
+import {COMBO,comboState,comboTier,comboBand,comboWidth,comboSpeed,comboContact,comboBreak,comboGoal,comboBreakFire} from './combo.mjs';
 
 export const COURT=GOAL_Z,OPP_Z=COURT-PLAYER_Z;
 // One fixed court: level 1's goal width and colour, and 0.8 of its ball speed (play-tested too fast: there is no keeper
@@ -33,7 +36,7 @@ const FLY={};
 function flyBall(s,dt){const b=s.ball;if(b.vz>=0)return advanceBall(b,dt);mirrorBall(b,FLY);const w=advanceBall(FLY,dt);mirrorBall(FLY,b);return -w;}
 
 // --- Match ---------------------------------------------------------------------------------------------------------
-function player(x=0){return {x,swing:null,energy:SKILLS.start,held:0,whiff:null,hits:0,lastShot:''};}
+function player(x=0){return {x,swing:null,energy:SKILLS.start,held:0,whiff:null,whiffAt:-9,hits:0,lastShot:'',streak:comboState()};}
 export function createDuel({auth={a:true,b:true}}={}){
   return {mode:'duel',phase:'ready',previousPhase:null,countdown:DUEL.serveDelay,ball:{x:0,z:PLAYER_Z+.3,vx:0,vz:-DUEL.speed,curve:null,kind:null,z0:PLAYER_Z+.3,z1:SWEET},
     players:{a:player(),b:player()},score:{a:0,b:0},winner:null,serveTo:'a',serves:0,rally:1,power:false,hitstop:0,flash:0,elapsed:0,boardAngle:0,
@@ -56,10 +59,14 @@ export function duelAttack(s,side){
   const p=s.players[side];if(s.phase!=='playing'||p.swing||!s.auth[side])return false;
   p.swing={time:0,hit:false,armed:null,whiffed:false};s.queued.push({type:'swing',side});return true;
 }
-// The exact rectangle side's swing can connect in (its own view), and the power band inside it.
-function zoneAt(lx){const band=PERFECT_BAND*W.reach*.5;return {left:lx-W.width,right:lx+W.width,near:PLAYER_Z-.12,far:PLAYER_Z+W.reach,sweetNear:SWEET-band,sweetFar:SWEET+band};}
-export function duelHitZone(s,side){return zoneAt(localX(side,s.players[side].x));}
-export function duelBurstZone(s,side){const r=duelHitZone(s,side),lx=localX(side,s.players[side].x),half=W.width*SKILLS.burst.widthScale;return {...r,left:lx-half,right:lx+half,far:r.far+SKILLS.burst.frontExtra};}
+// The exact rectangle side's swing can connect in (its own view), and the power band inside it; the streak (combo.mjs)
+// narrows the band, and its sweet state and recovery widen the band and the box.
+function zoneAt(lx,st=null){
+  const band=PERFECT_BAND*W.reach*.5*(st?comboBand(st):1),width=W.width*(st?comboWidth(st):1);
+  return {left:lx-width,right:lx+width,near:PLAYER_Z-.12,far:PLAYER_Z+W.reach,sweetNear:SWEET-band,sweetFar:SWEET+band};
+}
+export function duelHitZone(s,side){return zoneAt(localX(side,s.players[side].x),s.players[side].streak);}
+export function duelBurstZone(s,side){const r=duelHitZone(s,side),lx=localX(side,s.players[side].x),half=W.width*SKILLS.burst.widthScale*comboWidth(s.players[side].streak);return {...r,left:lx-half,right:lx+half,far:r.far+SKILLS.burst.frontExtra};}
 const inRect=(b,r)=>b.x>=r.left&&b.x<=r.right&&b.z>=r.near&&b.z<=r.far;
 function inRange(s,side,l){return s.phase==='playing'&&l.vz<0&&inRect(l,duelHitZone(s,side));}
 
@@ -81,8 +88,8 @@ export function duelSkillStatus(s,side,kind){
   return {ok:true};
 }
 // core.mjs spinShot in the striker's view, the opponent standing in for the keeper.
-function spinShot(rally,x,z,axis,oppX){
-  const cfg=SKILLS.spin,dir=aimSide(axis)||(oppX>=0?-1:1),v=DUEL.speed*Math.min(RALLY_CAP,rally*RALLY_STEP);
+function spinShot(rally,x,z,axis,oppX,pace=1){
+  const cfg=SKILLS.spin,dir=aimSide(axis)||(oppX>=0?-1:1),v=DUEL.speed*Math.min(RALLY_CAP,rally*RALLY_STEP)*pace;
   const curve={k:dir*cfg.curve,stopZ:z+(KEEPER_Z-z)*cfg.curveShare},mark=dir*DUEL.goalHalf*SPIN_SHARE,dt=1/120;
   const land=a0=>{let a=a0,bx=x,bz=z;for(let i=0;i<2400;i++){
     if(bz<curve.stopZ)a=clamp(a+curve.k*v*dt,-cfg.maxAngle,cfg.maxAngle);
@@ -90,19 +97,31 @@ function spinShot(rally,x,z,axis,oppX){
   let lo=-cfg.maxAngle,hi=cfg.maxAngle;for(let i=0;i<24;i++){const mid=(lo+hi)/2;if(land(mid)<mark)lo=mid;else hi=mid;}
   return {dir,angle:(lo+hi)/2,v,curve};
 }
-function registerContact(s,side,l,angle,kind,id,events){
+function registerContact(s,side,l,angle,kind,id,events,fire=false){
   const p=s.players[side];s.shots++;s.power=false;s.flash=1;p.hits++;p.lastShot=kind;
-  s.shot={side,x:l.x,z:l.z,angle,kind,at:s.elapsed,id};events.push({type:kind,side});
+  s.shot={side,x:l.x,z:l.z,angle,kind,at:s.elapsed,id,tier:'great',fire};events.push({type:kind,side});
 }
-const hitMsg=(s,side,event)=>({type:'hit',side,event,ball:copyBall(s.ball),rally:s.rally,energy:s.players[side].energy,power:s.power,shot:{...s.shot},stop:s.hitstop});
+// Pace on a shot by `side`: faster at an opponent on a streak, and for a fireball.
+const shotPace=(s,side,fire)=>comboSpeed(s.players[other(side)].streak)*(fire?COMBO.fireSpeed:1);
+function takeFire(st){const fire=st.fire;st.fire=false;return fire;}
+// The streak's side of a contact by `side` graded `tier` (combo.mjs); `broke`: it returned a fireball in the power band
+// (read before s.shot changes). What changed goes out as events and rides on the hit message (notes).
+function streakContact(s,side,tier,events,{skill=false,fire=false,broke=false}={}){
+  const st=s.players[side].streak,notes=[];
+  if(broke){comboBreakFire(st);addEnergy(s,side,COMBO.breakFireEnergy,events);notes.push('breakFire');}
+  notes.push(...comboContact(st,tier,{skill}));if(fire)notes.push('fireShot');
+  for(const type of notes)events.push({type,side,n:st.n});return notes;
+}
+const hitMsg=(s,side,event,notes=[])=>({type:'hit',side,event,ball:copyBall(s.ball),rally:s.rally,energy:s.players[side].energy,power:s.power,shot:{...s.shot},stop:s.hitstop,streak:{...s.players[side].streak},notes});
 export function duelSkill(s,side,kind,axis=0){
   const status=duelSkillStatus(s,side,kind);if(!status.ok)return status;
   const p=s.players[side],id=++s.skillSeq,l=localBall(s,side);p.energy-=SKILLS[kind].cost;
   if(kind==='spin'){
-    const {angle,v,curve}=spinShot(s.rally,l.x,l.z,axis,localX(side,s.players[other(side)].x));s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
+    const fire=takeFire(p.streak),{angle,v,curve}=spinShot(s.rally,l.x,l.z,axis,localX(side,s.players[other(side)].x),shotPace(s,side,fire));s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
     Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-SWEET,kind:'spin',curve});setBall(s,side,l);
-    registerContact(s,side,l,angle,'spin',id,s.queued);p.swing={time:W.windup,hit:true,armed:true,whiffed:false,skill:'spin'};
-    post(s,hitMsg(s,side,'spin'));
+    registerContact(s,side,l,angle,'spin',id,s.queued,fire);p.swing={time:W.windup,hit:true,armed:true,whiffed:false,skill:'spin'};
+    const notes=streakContact(s,side,'great',s.queued,{skill:true,fire});
+    post(s,hitMsg(s,side,'spin',notes));
   }else{
     s.skill={kind:'burst',side,id,time:0,x:l.x,z:l.z};s.phase='skill';p.swing=null;s.queued.push({type:'burstStart',side});
     post(s,{type:'burstStart',side,id,x:l.x,z:l.z});
@@ -111,30 +130,33 @@ export function duelSkill(s,side,kind,axis=0){
 }
 function launchBurst(s,side,axis){
   const k=s.skill,p=s.players[side],cfg=SKILLS.burst,angle=aimAngle(AIM,k.x,k.z,axis);
-  s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);const v=Math.min(cfg.maxSpeed,DUEL.speed*s.rally*cfg.speedScale);
+  const fire=takeFire(p.streak);s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);const v=Math.min(cfg.maxSpeed,DUEL.speed*s.rally*cfg.speedScale*shotPace(s,side,fire));
   const l={x:k.x,z:k.z,vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:k.z,z1:COURT-SWEET,kind:'burst',curve:null};setBall(s,side,l);
-  registerContact(s,side,l,angle,'burst',k.id,s.events);
+  registerContact(s,side,l,angle,'burst',k.id,s.events,fire);
   s.skill=null;s.phase='playing';p.swing={time:W.windup+W.active,hit:true,armed:true,whiffed:false,skill:'burst'};
-  post(s,hitMsg(s,side,'burst'));
+  const notes=streakContact(s,side,'great',s.events,{skill:true,fire});
+  post(s,hitMsg(s,side,'burst',notes));
 }
 
 // --- Strikes, whiffs, goals -----------------------------------------------------------------------------------------
 function strike(s,side,l,axis){
-  const p=s.players[side],sw=p.swing,t=clamp((l.z-SWEET)/(W.reach*.5),-1,1);
-  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=PERFECT_BAND,angle=aimAngle(AIM,l.x,l.z,axis);
+  const p=s.players[side],sw=p.swing,t=clamp((l.z-SWEET)/(W.reach*.5),-1,1),band=PERFECT_BAND*comboBand(p.streak);
+  const soft=!sw.armed,perfect=!soft&&Math.abs(t)<=band,tier=comboTier(t,{band,soft}),angle=aimAngle(AIM,l.x,l.z,axis);
+  const fire=takeFire(p.streak),broke=perfect&&!!s.shot?.fire&&s.shot.side!==side;
   s.rally=Math.min(RALLY_CAP,s.rally*RALLY_STEP);
-  const v=DUEL.speed*s.rally*(perfect?POWER:soft?SOFT:1);
+  const v=DUEL.speed*s.rally*(perfect?POWER:soft?SOFT:1)*shotPace(s,side,fire);
   Object.assign(l,{vx:Math.sin(angle)*v,vz:Math.cos(angle)*v,z0:l.z,z1:COURT-SWEET,kind:perfect?'perfect':null,curve:null});setBall(s,side,l);
   sw.hit=true;s.shots++;s.power=perfect;p.hits++;
   const kind=soft?'soft':perfect?'perfect':['left','straight','right'][aimSide(axis)+1];p.lastShot=kind;
-  s.shot={side,x:l.x,z:l.z,angle,kind,at:s.elapsed};s.flash=1;s.hitstop=perfect?.07:.05;
+  s.shot={side,x:l.x,z:l.z,angle,kind,at:s.elapsed,tier,fire};s.flash=1;s.hitstop=perfect?.07:.05;
   const event=perfect?'perfect':soft?'soft':'hit';s.events.push({type:event,side});
   addEnergy(s,side,soft?0:perfect?SKILLS.gainPerfect:SKILLS.gainHit,s.events);
-  post(s,hitMsg(s,side,event));
+  const notes=streakContact(s,side,tier,s.events,{fire,broke});
+  post(s,hitMsg(s,side,event,notes));
 }
 // core.mjs whiffReason, in side's view.
-function whiffReason(lx,sw){
-  const r=zoneAt(lx),f=sw.first,l=sw.last,lateral=o=>Math.abs(o.dx)<=W.width;
+function whiffReason(lx,sw,st){
+  const r=zoneAt(lx,st),f=sw.first,l=sw.last,lateral=o=>Math.abs(o.dx)<=r.right-lx;
   if(!f||(!f.inc&&!l.inc))return {reason:'none'};
   if(sw.side)return {reason:'reach',side:sw.side};
   if(l.inc&&l.z>r.far&&lateral(l))return {reason:'early'};
@@ -148,7 +170,7 @@ function movePlayer(s,side,axis,dt){
   if(!(sw&&!sw.hit&&!sw.whiffed)&&!(!sw&&inRange(s,side,localBall(s,side,L1))))p.x=clamp(p.x+localX(side,axis*RUN*dt),-3.45,3.45);
   if(sw){
     sw.time+=dt;
-    if(!sw.hit&&!sw.whiffed&&sw.time>W.windup+W.active){sw.whiffed=true;p.whiff=whiffReason(localX(side,p.x),sw);s.events.push({type:'whiff',side});}
+    if(!sw.hit&&!sw.whiffed&&sw.time>W.windup+W.active){sw.whiffed=true;p.whiff=whiffReason(localX(side,p.x),sw,p.streak);p.whiffAt=s.elapsed;s.events.push({type:'whiff',side});}
     if(sw.time>W.windup+W.active+W.recovery+(sw.whiffed?W.whiff:0))p.swing=null;
   }
 }
@@ -156,16 +178,21 @@ function movePlayer(s,side,axis,dt){
 function driftSwing(p,dt){const sw=p.swing;if(!sw)return;sw.time+=dt;if(sw.time>W.windup+W.active+W.recovery+(sw.whiffed?W.whiff:0))p.swing=null;}
 function watchWindow(s,side){
   const p=s.players[side],sw=p.swing;if(!sw||sw.hit||sw.time<W.windup||sw.time>W.windup+W.active)return;
-  const l=localBall(s,side,L1),lx=localX(side,p.x),r=zoneAt(lx),dx=l.x-lx,inc=l.vz<0;sw.first??={z:l.z,dx,inc};sw.last={z:l.z,dx,inc};
-  if(inc&&l.z>=r.near&&l.z<=r.far&&Math.abs(dx)>W.width)sw.side=Math.sign(dx);
+  const l=localBall(s,side,L1),lx=localX(side,p.x),r=zoneAt(lx,p.streak),dx=l.x-lx,inc=l.vz<0;sw.first??={z:l.z,dx,inc};sw.last={z:l.z,dx,inc};
+  if(inc&&l.z>=r.near&&l.z<=r.far&&Math.abs(dx)>r.right-lx)sw.side=Math.sign(dx);
 }
+// Why the conceding player let the ball through, for the break's record: a whiff on this ball names its cause, a swing
+// still out was too late, otherwise it never swung.
+function breakCause(s,p){return p.swing&&!p.swing.hit&&!p.swing.whiffed?'late':p.whiff&&s.elapsed-p.whiffAt<1.5&&p.whiff.reason!=='none'?p.whiff.reason:'idle';}
 function scoreGoal(s,shooter,x,l){
+  const loser=other(shooter),cause=breakCause(s,s.players[loser]),broken=comboBreak(s.players[loser].streak);comboGoal(s.players[shooter].streak);
   s.score[shooter]++;s.lastGoal={by:shooter,x,vx:l.vx,vz:l.vz,key:false,n:s.score[shooter]};
   s.hitstop=.12;s.rally=1;s.power=false;s.hold=false;for(const side of SIDES)s.players[side].swing=null;
-  s.events.push({type:'goal',side:shooter});
+  s.events.push({type:'goal',side:shooter},{type:'comboBreak',side:loser,n:broken,cause});
   if(s.score[shooter]>=DUEL.goals){s.phase='won';s.winner=shooter;s.events.push({type:'win',side:shooter});}
   else{s.phase='goal';s.countdown=DUEL.goalDelay;s.serveTo=other(shooter);}
-  post(s,{type:'goal',side:shooter,score:{...s.score},lastGoal:{...s.lastGoal},ball:copyBall(s.ball),winner:s.winner,serveTo:s.serveTo});
+  post(s,{type:'goal',side:shooter,score:{...s.score},lastGoal:{...s.lastGoal},ball:copyBall(s.ball),winner:s.winner,serveTo:s.serveTo,
+    streaks:{a:{...s.players.a.streak},b:{...s.players.b.streak}},broken:{n:broken,cause}});
 }
 // The receiver's end, judged in the shooter's view exactly like the single-player far end: inside the mouth at the goal
 // line is a goal, anything else comes back off the end wall with the board's small deflection.
@@ -245,14 +272,17 @@ export function applyMessage(s,msg,age=0){
   if(msg.type==='serve'){copyBall(msg.ball,s.ball);s.serves=msg.serves;s.phase='playing';s.hold=false;for(const side of SIDES)s.players[side].swing=null;s.power=false;s.queued.push({type:'serve',side:s.serveTo});catchUp(s,steps);}
   else if(msg.type==='hit'){
     const p=s.players[msg.side];copyBall(msg.ball,s.ball);s.rally=msg.rally;p.energy=msg.energy;s.power=msg.power;p.lastShot=msg.shot.kind;p.hits++;s.shots++;
+    if(msg.streak)Object.assign(p.streak,msg.streak);
     s.shot={...msg.shot,at:s.elapsed};s.flash=1;s.hold=false;if(s.phase==='skill'){s.skill=null;s.phase='playing';}
-    const [stop,fly]=stopThenFly(msg.stop,steps);s.hitstop=stop;s.queued.push({type:msg.event,side:msg.side});catchUp(s,fly);
+    const [stop,fly]=stopThenFly(msg.stop,steps);s.hitstop=stop;s.queued.push({type:msg.event,side:msg.side});
+    for(const type of msg.notes||[])s.queued.push({type,side:msg.side,n:p.streak.n});catchUp(s,fly);
   }
   else if(msg.type==='wide'){copyBall(msg.ball,s.ball);s.power=false;s.hold=false;s.queued.push({type:'wide',side:msg.side});catchUp(s,steps);}
   else if(msg.type==='burstStart'){s.skill={kind:'burst',side:msg.side,id:msg.id,time:Math.min(SKILLS.burst.duration,age),x:msg.x,z:msg.z};s.phase='skill';s.players[msg.side].swing=null;s.queued.push({type:'burstStart',side:msg.side});}
   else if(msg.type==='goal'){
     s.score={...msg.score};s.lastGoal={...msg.lastGoal};copyBall(msg.ball,s.ball);s.hitstop=stopThenFly(.12,steps)[0];s.rally=1;s.power=false;s.hold=false;s.skill=null;
-    for(const side of SIDES)s.players[side].swing=null;s.queued.push({type:'goal',side:msg.side});
+    for(const side of SIDES){s.players[side].swing=null;if(msg.streaks)Object.assign(s.players[side].streak,msg.streaks[side]);}s.queued.push({type:'goal',side:msg.side});
+    if(msg.broken)s.queued.push({type:'comboBreak',side:other(msg.side),n:msg.broken.n,cause:msg.broken.cause});
     if(msg.winner){s.phase='won';s.winner=msg.winner;s.queued.push({type:'win',side:msg.winner});}
     else{s.phase='goal';s.countdown=DUEL.goalDelay-age;s.serveTo=msg.serveTo;}
   }
