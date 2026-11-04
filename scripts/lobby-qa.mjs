@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
+import {chromium,CHROME} from './qa-env.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
-const browser=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+const browser=await chromium.launch({executablePath:CHROME,headless:true});
 const errors=[],results=[];await mkdir('artifacts/lobby',{recursive:true});
 try{
  const context=await browser.newContext();
@@ -14,7 +12,7 @@ try{
  for(const viewport of [{width:1756,height:860},{width:1440,height:1000},{width:1280,height:720},{width:768,height:1024},{width:390,height:844},{width:360,height:640},{width:320,height:568},{width:844,height:390}]){
   await page.setViewportSize(viewport);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   const fit=await page.evaluate(()=>{
-   const ids=['start-match','prep-level-name','help','sound'];
+   const ids=['start-match','prep-level-name','prep-player-name','help','sound'];
    return {overflow:document.documentElement.scrollWidth>innerWidth||document.documentElement.scrollHeight>innerHeight+1,targets:ids.map(id=>{
     const el=document.getElementById(id),button=el.closest('button')||el,r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
     return {id,x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom,right:r.right,clickable:button===hit||button.contains(hit)};
@@ -25,6 +23,7 @@ try{
   assert.ok(fit.courtHeight>=240,JSON.stringify({viewport,fit}));
   await page.screenshot({path:'artifacts/lobby/home-'+viewport.width+'.png',fullPage:true});
   await page.getByRole('button',{name:'选择关卡',exact:true}).click();assert.equal(await page.locator('#selection-dialog').isVisible(),true);await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'选择人物',exact:true}).click();assert.equal(await page.locator('.player-options').isVisible(),true,'人物按钮打开人物区块');await page.keyboard.press('Escape');
   assert.equal(await page.locator('[data-action="choose-gear"]').count(),0,'大厅不再有装备入口');
   await page.getByRole('button',{name:'单机对战'}).click();await page.waitForFunction(()=>document.body.dataset.screen==='match');
   assert.equal(await page.locator('.lobby-menu').isVisible(),false);

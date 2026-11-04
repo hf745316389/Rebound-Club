@@ -1,11 +1,22 @@
 import * as THREE from './vendor/three.module.min.js';
 import {makeSurfaceTexture,softBoxGeometry,netGeometry,mergeRigidParts,mergeMeshGeometry} from './art.mjs';
-import {LEVELS,WEAPONS,SKILLS,foldX,HIT_HEIGHT,ballHeight,hitZone,burstZone,swingPreview,skillStatus,spinPreview,predictFlight,goalLock,GOAL_CAM,KEEPER_Z,KEEPER_REACH,GOAL_Z,FAR_WALL,SIDE,PLAYER_Z} from './core.mjs';
+import {LEVELS,WEAPONS,SKILLS,foldX,HIT_HEIGHT,ballHeight,hitZone,burstZone,swingPreview,skillStatus,spinPreview,predictFlight,goalLock,GOAL_CAM,KEEPER_Z,KEEPER_REACH,GOAL_Z,FAR_WALL,SIDE,PLAYER_Z,GOAL_TOP,ZONES,playerGear} from './core.mjs';
 import {hitFeel} from './ui.mjs';
 import {buildSpectatorCrowd} from './crowd.mjs';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {loadCharacterAssets,createActor,toonMaterial,outlineMaterial,addOutline} from './actor.mjs';
-import {CHARACTERS} from './characters.mjs';
+import {CHARACTERS,DEFAULT_PLAYER,playerSpec} from './characters.mjs';
+
+// The ball's wave print, one texture for every world the page builds (a figure change rebuilds the world). The ball's
+// two materials share a shader program, and a disposed print from the old world got uploaded again by the new one, so
+// the print is shared and never disposed with a world (userData.shared).
+let BALL_WAVES;
+function ballWavesTexture(){
+  if(typeof document==='undefined')return null;if(BALL_WAVES)return BALL_WAVES;
+  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d');g.fillStyle='#fff7e8';g.fillRect(0,0,256,128);g.lineWidth=14;
+  for(const [col,off] of [['#ff6a2b',0],['#1d2a5c',64],['#ff6a2b',128],['#1d2a5c',192]]){g.strokeStyle=col;g.beginPath();for(let x=0;x<=256;x+=4){const y=64+Math.sin((x+off)/256*Math.PI*2)*38;x?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();}
+  BALL_WAVES=new THREE.CanvasTexture(c);BALL_WAVES.colorSpace=THREE.SRGBColorSpace;BALL_WAVES.userData.shared=true;return BALL_WAVES;
+}
 
 // Rendering uses (x,height,-physicsDepth); the game simulation remains unchanged.
 // assets: the loaded characters ({striker, keeper} glTFs, see loadCharacterAssets); each world builds its own copies.
@@ -69,20 +80,41 @@ export function buildWorld(assets,{duel=false}={}){
   const farNet=new THREE.LineBasicMaterial({color:'#e8f0ff',transparent:true,opacity:.5});
   let farNetLines=null,netRest=null,netDirty=false;
   function buildFarGoal(g){
-    for(const child of [...farGoal.children]){farGoal.remove(child);if(child!==sign)child.geometry?.dispose();}
+    for(const child of [...farGoal.children]){
+      farGoal.remove(child);if(child!==sign)child.geometry?.dispose();
+      if(child.userData.zoneBand){child.material.map?.dispose();child.material.dispose();}
+    }
     const edge=SIDE+.4,span=edge-g;
     for(const side of [-1,1]){
       box(span,.32,.65,'#141a33',farGoal,side*(g+span/2),.17,-.3);
       box(span,.95,.32,'#1a2142',farGoal,side*(g+span/2),.82,-.42);
       mesh(new THREE.PlaneGeometry(span-.08,.72),ledFar,farGoal,side*(g+span/2),.84,-.255,false).receiveShadow=false;
-      const post=rod([side*g,.02,.1],[side*g,1.25,.1],.07,'#ffffff',farGoal);post.name=side<0?'post-left':'post-right';post.position.x=side*g;
-      rod([side*g,1.25,.1],[side*g,.9,-.75],.045,'#e8edf8',farGoal);
-      sphere(.078,'#ffffff',farGoal,side*g,1.25,.1,1,1,1).castShadow=false;
+      const post=rod([side*g,.02,.1],[side*g,GOAL_TOP,.1],.07,'#ffffff',farGoal);post.name=side<0?'post-left':'post-right';post.position.x=side*g;
+      rod([side*g,GOAL_TOP,.1],[side*g,.9,-.75],.045,'#e8edf8',farGoal);
+      sphere(.078,'#ffffff',farGoal,side*g,GOAL_TOP,.1,1,1,1).castShadow=false;
     }
-    rod([-g,1.25,.1],[g,1.25,.1],.07,'#ffffff',farGoal);
+    rod([-g,GOAL_TOP,.1],[g,GOAL_TOP,.1],.07,'#ffffff',farGoal);
     rod([-g,.9,-.75],[g,.9,-.75],.045,'#e8edf8',farGoal);
-    farNetLines=new THREE.LineSegments(netGeometry(g,1.25,.9,.1,-.75),farNet);netRest=farNetLines.geometry.attributes.position.array.slice();netDirty=false;farGoal.add(farNetLines);
+    farNetLines=new THREE.LineSegments(netGeometry(g,GOAL_TOP,.9,.1,-.75),farNet);netRest=farNetLines.geometry.attributes.position.array.slice();netDirty=false;farGoal.add(farNetLines);
+    // Height zones (ZONES): a band in each zone's colour across the mouth, thin lines between them, and the zone's
+    // mult beside both posts. Single player only: a duel has no height zones.
+    if(!duel)['low','mid','top'].forEach((zone,i)=>{
+      const h=GOAL_TOP/3,y=h*(i+.5),see=o=>Object.assign(o,{receiveShadow:false}).userData.zoneBand=true;
+      see(mesh(new THREE.PlaneGeometry(2*g,h),new THREE.MeshBasicMaterial({color:ZONES[zone].color,transparent:true,opacity:.2,depthWrite:false}),farGoal,0,y,-.02,false));
+      if(i)see(mesh(new THREE.PlaneGeometry(2*g,.025),new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:.55,depthWrite:false}),farGoal,0,h*i,-.01,false));
+      for(const side of [-1,1]){const tag=zoneTag(zone,.32);tag.position.set(side*(g+.28),y,.12);tag.userData.zoneBand=true;farGoal.add(tag);}
+    });
     mergeRigidParts(farGoal);
+  }
+  // A square chip with a height zone's mult in the zone's colour, large enough to read at the far goal.
+  function zoneTag(zone,size){
+    const geometry=new THREE.PlaneGeometry(size,size);
+    if(typeof document==='undefined')return new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
+    const c=document.createElement('canvas');c.width=c.height=128;const ctx=c.getContext('2d');
+    ctx.fillStyle='#141a33e6';ctx.beginPath();ctx.roundRect(4,4,120,120,22);ctx.fill();
+    ctx.fillStyle=ZONES[zone].color;ctx.font='900 76px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`×${ZONES[zone].mult}`,64,70);
+    const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;
+    return new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,toneMapped:false}));
   }
   function label(value,width,height,color='#2c5745',background=null){
     // Without a DOM (node tests) the same-sized plane is built untextured, so its placement can still be checked.
@@ -202,7 +234,7 @@ export function buildWorld(assets,{duel=false}={}){
   // In a duel the far figure strikes the ball too, and the keeper's near-white gloves hid it at contact (AC21 stand-in
   // report): there it wears deep navy gloves, which part from the white ball and the turf.
   const FAR_SPEC=duel?{...CHARACTERS.keeper,glove:{...CHARACTERS.keeper.glove,color:DUEL_FAR_GLOVE}}:CHARACTERS.keeper;
-  const striker=createActor(assets.striker,CHARACTERS.striker,'striker'),goalie=createActor(assets.keeper,FAR_SPEC,'keeper');
+  const striker=createActor(assets.striker,playerSpec(assets.player),'striker'),goalie=createActor(assets.keeper,FAR_SPEC,'keeper');
   const hero=striker.root,keeper=goalie.root;
   scene.add(hero);hero.position.set(0,0,-1.6);
   // In a duel the second player stands where the striker does, seen from the other end.
@@ -220,9 +252,7 @@ export function buildWorld(assets,{duel=false}={}){
   // A power shot swells and burns orange-red for its whole flight, trail included.
   // Toon-shaded and inked like the players: a cream ball with club-orange and navy waves, so its spin reads. Without a DOM
   // (node tests) it is plain amber. A power shot burns orange through the same waves.
-  const ballWaves=(()=>{if(typeof document==='undefined')return null;const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d');g.fillStyle='#fff7e8';g.fillRect(0,0,256,128);g.lineWidth=14;
-    for(const [col,off] of [['#ff6a2b',0],['#1d2a5c',64],['#ff6a2b',128],['#1d2a5c',192]]){g.strokeStyle=col;g.beginPath();for(let x=0;x<=256;x+=4){const y=64+Math.sin((x+off)/256*Math.PI*2)*38;x?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();}
-    const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;})();
+  const ballWaves=ballWavesTexture();
   const ballMat=toonMaterial(ballWaves?{map:ballWaves}:{color:'#ffbd35'},'#fff1c0',.35),powerMat=toonMaterial({color:'#ff7a3a',map:ballWaves,emissive:'#ff3d10',emissiveIntensity:.45},'#ffd7a0',.35);
   const ballBody=mesh(new THREE.SphereGeometry(.26,24,18),ballMat,ball),ballInk=addOutline(ballBody,outlineMaterial(.02));
   // The body and its ink take a stretch matrix (along the flight, about the centre) while the group keeps the spin.
@@ -246,6 +276,10 @@ export function buildWorld(assets,{duel=false}={}){
   const spinArc=Array.from({length:16},()=>{const d=new THREE.Mesh(dotGeo,spinMat);d.rotation.x=-Math.PI/2;d.scale.setScalar(1.25);d.renderOrder=6;d.visible=false;scene.add(d);return d;});
   // Depth-tested like the route: the ring lies on the far goal line behind the keeper, so drawn on top it would cover them.
   const target=flat(new THREE.RingGeometry(.3,.42,32),'#7ee08a',.9,.05);target.material.depthTest=true;target.visible=false;
+  // Where a shot meets the mouth: a standing ring at its zone's height in the zone's colour, the zone's mult above it.
+  const zoneMark=new THREE.Group(),zoneRing=new THREE.Mesh(new THREE.RingGeometry(.13,.19,28),new THREE.MeshBasicMaterial({transparent:true,opacity:.9,depthWrite:false}));
+  const zoneTags={};zoneMark.add(zoneRing);zoneMark.visible=false;scene.add(zoneMark);
+  for(const zone in ZONES){const tag=zoneTag(zone,.3);tag.position.y=.36;zoneTags[zone]=tag;zoneMark.add(tag);}
   // What the keeper covers: drawn at its feet at the true save reach.
   const reachBar=flat(unit,'#9cc8ea',.28,.05);reachBar.scale.set(KEEPER_REACH*2,.38,1);
   // Burst's slightly wider catch frame, shown only while it is affordable, so the extra margin is never hidden.
@@ -400,7 +434,7 @@ export function buildWorld(assets,{duel=false}={}){
   // when ready, the head follows the ball, and both arms swing toward the save point by weight w (sinking to the turf
   // once a dive lands). react: an extra [clip, time, weight] layer (a cheer).
   const armTarget=new THREE.Vector3();
-  function poseGoalie(a,dir,land,w,tx,ready,sink,shuffle,t,look,react){
+  function poseGoalie(a,dir,land,w,tx,ready,sink,shuffle,t,look,react,ty=HIT_HEIGHT){
     const layers=[],k=Math.min(1,a*3),rw=a>0?0:react?react[2]:0;
     if(a>0)layers.push([dir>0?'diveLeft':'diveRight',.1+.18*Math.min(1,a/.6),k],['idle',t,1-k,true]);
     // A side shuffle is 70% side-step over idle, so the arms do not swing out past the save reach.
@@ -410,7 +444,7 @@ export function buildWorld(assets,{duel=false}={}){
     goalie.pose(layers,{lockHips:a>0});
     goalie.crouch(sink);goalie.lean('spine',.16*ready*(1-a));
     if(look&&a<.15)goalie.look('head',look,.6);
-    if(w>0){armTarget.set(tx,HIT_HEIGHT-(HIT_HEIGHT-.2)*land,-KEEPER_Z+.15);goalie.aimArm('L',armTarget,w);goalie.aimArm('R',armTarget,w);}
+    if(w>0){armTarget.set(tx,ty-(ty-.2)*land,-KEEPER_Z+.15);goalie.aimArm('L',armTarget,w);goalie.aimArm('R',armTarget,w);}
   }
   // How far the keeper's body reaches sideways at ball height (below 1.7) for each stretch with both arms reaching
   // out toward the ball side, measured once from the model.
@@ -431,22 +465,25 @@ export function buildWorld(assets,{duel=false}={}){
   // through contact, a big dive then lands on its side, and the keeper gets back up. A shot it can reach is met at its
   // gap; one it cannot (a goal) gets a full-effort dive that stops short of the ball's path. Shots heading clearly wide
   // are only watched. The rules' own save (keeper.dive restarting) fixes side, stretch and contact from the real save.
-  const DIVE={load:.1,launch:.14,hold:.06,land:.22,up:.5},dive={state:null,on:false,locked:false,at:0,dir:1,amt:0,tx:0,lastK:0},diveOut={a:0,w:0,tx:0,land:0,crouch:0,step:0,dir:1};
+  const DIVE={load:.1,launch:.14,hold:.06,land:.22,up:.5},dive={state:null,on:false,locked:false,at:0,dir:1,amt:0,tx:0,ty:HIT_HEIGHT,lastK:0},diveOut={a:0,w:0,tx:0,ty:HIT_HEIGHT,land:0,crouch:0,step:0,dir:1};
+  // The ball at the keeper's line, for the height the hands reach to (a scratch copy, reused).
+  const atKeeper={ball:{}};
   function trackDive(s,now,pose,sm){
     const d=dive,k=s.keeper,b=s.ball,o=diveOut;o.a=o.w=o.land=o.crouch=o.step=0;
     if(d.state!==s||s.phase==='ready')Object.assign(d,{state:s,on:false,locked:false,lastK:k.dive});
     const saved=k.dive>d.lastK+.01;d.lastK=k.dive;
-    if(saved)Object.assign(d,{on:true,locked:true,at:d.on?Math.min(d.at,now):now,dir:k.diveDir,amt:saveStretch(Math.abs(pose.bx-pose.kx)),tx:pose.bx});
+    if(saved)Object.assign(d,{on:true,locked:true,at:d.on?Math.min(d.at,now):now,dir:k.diveDir,amt:saveStretch(Math.abs(pose.bx-pose.kx)),tx:pose.bx,ty:b.h0??HIT_HEIGHT});
     else if(s.phase==='playing'&&b.vz>0&&b.z<KEEPER_Z&&!d.locked){
       const tk=(KEEPER_Z-b.z)/b.vz,goalX=foldX(b.x+b.vx*(GOAL_Z-b.z)/b.vz);
       if(tk<=DIVE.load+DIVE.launch&&Math.abs(goalX)<=s.level.goalHalf+.3){
         const cross=foldX(b.x+b.vx*tk),gap=cross-k.x,g=Math.abs(gap);
-        Object.assign(d,{on:true,at:now+tk,dir:Math.sign(gap)||1,amt:g<=KEEPER_REACH?saveStretch(g):beatenDive(g),tx:cross});
+        Object.assign(atKeeper.ball,b).z=KEEPER_Z;
+        Object.assign(d,{on:true,at:now+tk,dir:Math.sign(gap)||1,amt:g<=KEEPER_REACH?saveStretch(g):beatenDive(g),tx:cross,ty:ballHeight(atKeeper)});
       }
     }
     const big=d.amt>.6,end=DIVE.hold+(big?DIVE.land:0)+DIVE.up;
     if(d.on&&now-d.at>end){d.on=false;d.locked=false;}
-    o.dir=d.dir;o.tx=d.tx;if(!d.on)return o;
+    o.dir=d.dir;o.tx=d.tx;o.ty=d.ty;if(!d.on)return o;
     const u=now-d.at;
     if(u<-DIVE.launch){const p=sm((u+DIVE.launch+DIVE.load)/DIVE.load);o.crouch=.1*p;o.step=.07*p;o.w=.25*p;}
     else if(u<DIVE.hold){const p=Math.min(1,(u+DIVE.launch)/DIVE.launch),e=1-(1-p)**2;o.a=d.amt*e;o.w=.25+.75*e;o.crouch=.1*(1-e);o.step=.07*(1-e);}
@@ -545,7 +582,7 @@ export function buildWorld(assets,{duel=false}={}){
     // Striker: idle or a side-step by the held direction; the punch follows the rules' swing clock (or the burst's).
     hero.position.set(pose.px,0,-s.player.z);follow=pose.px*FOLLOW;
     hero.rotation.z=s.phase==='playing'?-axis*.075:0;
-    const moving=s.phase==='playing'&&Math.abs(axis)>.05,sw=s.swing,w=WEAPONS[s.weapon];
+    const moving=s.phase==='playing'&&Math.abs(axis)>.05,sw=s.swing,w=playerGear(s);
     if(sw!==lastSwing){if(lastSwing&&!sw)swingEnd.at=s.elapsed;else if(sw)punchLeft=s.ball.x<s.player.x-.08;lastSwing=sw;}
     if(sw)swingEnd.time=sw.time;
     const left=!sk&&punchLeft,c=left?PUNCH.left:PUNCH.right;let sTime=0,sWeight=0;
@@ -588,7 +625,7 @@ export function buildWorld(assets,{duel=false}={}){
     keeper.position.set(pose.kx+off.x+dv.dir*dv.step,off.y-sink,-KEEPER_Z);
     // Shuffling means actually moving: the keeper's step since the last simulation tick.
     const kStep=s.pose?k.x-s.pose.kx:0,shuffling=!dv.a&&Math.abs(kStep)>1e-4&&s.phase==='playing';
-    poseGoalie(dv.a,dv.dir,dv.land,dv.w,dv.tx,keeperReady,sink,shuffling?Math.sign(kStep):0,animT,lookAt3,kw>0?['cheer',now-react.at,kw]:null);
+    poseGoalie(dv.a,dv.dir,dv.land,dv.w,dv.tx,keeperReady,sink,shuffling?Math.sign(kStep):0,animT,lookAt3,kw>0?['cheer',now-react.at,kw]:null,dv.ty);
     }
     // Big heads and gloves reach the turf first when the body lies on its side: lift the whole body by the deepest point.
     const low=goalie.lowestPoint();if(low<0){keeper.position.y-=low;keeper.updateMatrixWorld(true);}
@@ -596,7 +633,7 @@ export function buildWorld(assets,{duel=false}={}){
     ball.position.set(pose.bx,height,-pose.bz);
     if(goalCam.goalAt>=0&&(s.phase==='goal'||s.phase==='won'))netShot(s,now,reduceMotion,sm);else restoreNet();
     throwConfetti(s,now,reduceMotion);
-    // A fireball (combo.mjs) wears the power look with a thick red-orange trail.
+    // A fireball (core.mjs CHAIN, or combo.mjs in a duel) wears the power look with a thick red-orange trail.
     const fire=!!s.shot?.fire&&s.ball.vz>0,powered=(s.power||s.ball.kind==='burst'||fire)&&s.ball.vz>0,spinning=s.ball.kind==='spin'&&s.ball.vz>0,size=powered?1.25:1,squash=!reduceMotion&&fxFeel&&fxAge<.09?(1-fxAge/.09)*Math.min(1,fxFeel.intensity*.6):0;
     ball.scale.setScalar(size);ballBody.material=powered?powerMat:ballMat;
     const burstTrail=(s.ball.kind==='burst'||fire)&&s.ball.vz>0;
@@ -628,8 +665,12 @@ export function buildWorld(assets,{duel=false}={}){
       const cover=duel?WEAPONS[s.weapon].width:KEEPER_REACH;
       route.forEach((d,i)=>{const on=i+1<fl.count&&fl.zs[i+1]>s.ball.z;d.visible=on;if(on)d.position.set(fl.xs[i+1],.052,-fl.zs[i+1]);});
       const gx=fl.goal??fl.xs[fl.count-1];routeMat.color.set(s.ball.kind==='spin'?'#9df0e2':'#fff6d8');
-      target.position.set(gx,.05,-GOAL_Z);target.material.color.set(Math.abs(gx)>s.level.goalHalf?'#c9c9b8':Math.abs(gx-s.keeper.x)<=cover?'#ff5a4a':'#5fe07a');target.visible=true;
-    }else{route.forEach(d=>d.visible=false);target.visible=false;}
+      // A single-player fireball goes through the keeper (core.mjs CHAIN); a duel's can be returned (combo.mjs).
+      const pierce=!duel&&s.shot.fire;
+      target.position.set(gx,.05,-GOAL_Z);target.material.color.set(Math.abs(gx)>s.level.goalHalf?'#c9c9b8':!pierce&&Math.abs(gx-s.keeper.x)<=cover?'#ff5a4a':'#5fe07a');target.visible=true;
+      const zone=ZONES[s.shot.zone];zoneMark.visible=!!zone&&Math.abs(gx)<=s.level.goalHalf;
+      if(zoneMark.visible){zoneMark.position.set(gx,zone.h,-GOAL_Z);zoneRing.material.color.set(zone.color);for(const z in zoneTags)zoneTags[z].visible=z===s.shot.zone;}
+    }else{route.forEach(d=>d.visible=false);target.visible=false;zoneMark.visible=false;}
     const sp=incoming&&H.skillStatus(s,'spin').ok?H.spinPreview(s,axis):null;
     spinArc.forEach((d,i)=>{const on=!!sp&&i<sp.count;d.visible=on&&showHints;if(on)d.position.set(sp.xs[i],.055,-sp.zs[i]);});
     const showBurst=incoming&&!s.swing&&!s.tutorial&&s.energy>=SKILLS.burst.cost;
@@ -786,9 +827,10 @@ export function createQualityGovernor({slowMs=22,holdMs=2000}={}){
   }};
 }
 // Returns at once; `ready` settles when the characters are loaded and the world is built (nothing is drawn before).
-// A failed load rejects `ready`, and the caller falls back to the 2D court.
-// options: passed to buildWorld ({duel}).
-export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url),options={}){
+// A failed load rejects `ready`, and the caller falls back to the 2D court. `player` picks the striker's figure (a
+// figure that fails to load falls back to the default one); `player` on the renderer says which one is shown. The
+// other options go to buildWorld ({duel}).
+export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url),{player=DEFAULT_PLAYER,...options}={}){
   // No preserveDrawingBuffer: tiled mobile GPUs would otherwise copy the whole frame every time.
   const context=canvas.getContext('webgl2',{antialias:true,alpha:false});
   if(!context)throw new Error('WebGL2 is unavailable');
@@ -801,12 +843,34 @@ export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url
     const shadow=world.sun.shadow;if(shadow.mapSize.x!==q.shadowMap){shadow.mapSize.set(q.shadowMap,q.shadowMap);shadow.map?.dispose();shadow.map=null;}
     width=0;
   }
-  const ready=loadCharacterAssets(load).then(assets=>{world=buildWorld(assets,options);applyQuality();});
+  // Each model file is fetched and parsed once; a figure change rebuilds the world around the cached rigs.
+  const files=new Map(),cached=url=>{if(!files.has(url))files.set(url,load(url).catch(e=>{files.delete(url);throw e;}));return files.get(url);};
+  let assets=null,worlds=0;
+  // Everything a world put on the GPU: geometry, materials and their maps (except shared ones), skeletons (their bone textures) and the
+  // lights' shadow maps.
+  const disposeWorld=w=>w?.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!m.map?.userData.shared)m.map?.dispose();m.dispose();}}
+    if(o.isSkinnedMesh)o.skeleton.dispose();if(o.isLight&&o.shadow?.map){o.shadow.map.dispose();o.shadow.map=null;}});
+  const ready=loadCharacterAssets(cached,{player}).then(a=>{assets=a;world=buildWorld(assets,options);worlds++;applyQuality();});
+  // Shows another figure (the lobby's pick). Resolves to the figure actually shown: a file that fails keeps the
+  // current one. Changes arriving while one is loading are applied in order; the last one wins.
+  let queue=Promise.resolve();
+  function setPlayer(id){
+    queue=queue.then(()=>ready).then(async()=>{
+      const spec=playerSpec(id);if(spec.id===assets.player)return assets.player;
+      let striker;try{striker=await cached(spec.file);}catch{return assets.player;}
+      const next={...assets,striker,player:spec.id},old=world;
+      world=buildWorld(next,options);worlds++;assets=next;disposeWorld(old);applyQuality();return assets.player;
+    });
+    return queue;
+  }
   // The canvas size is read only when it changes (ResizeObserver), not every frame, so rendering never forces layout.
   const measure=()=>{const r=canvas.getBoundingClientRect();size=[r.width,r.height];};
   const observer=typeof ResizeObserver==='function'?new ResizeObserver(measure):null;observer?.observe(canvas);
   return {
-    ready,
+    ready,setPlayer,
+    get player(){return assets?.player??null;},
+    get info(){return renderer.info;},
+    get worlds(){return worlds;},
     get quality(){return governor.tier;},
     render(state,axis,reduceMotion,shake=0){
       if(!world)return;if(!observer||!size)measure();const [w,h]=size;if(!w||!h)return;
@@ -814,6 +878,6 @@ export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url
       if(w!==width||h!==height){width=w;height=h;renderer.setSize(width,height,false);world.resize(width/height);}
       world.update(state,axis,reduceMotion,now/1000);world.shake(reduceMotion?0:shake);renderer.render(world.scene,world.camera);
     },
-    dispose(){observer?.disconnect();world?.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material]){m.map?.dispose();m.dispose();}}});renderer.dispose();}
+    dispose(){observer?.disconnect();disposeWorld(world);renderer.dispose();}
   };
 }

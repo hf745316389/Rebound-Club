@@ -1,10 +1,8 @@
 // Character close-ups from the real assets (node scripts/art-qa.mjs, needs the local server on :4173): the striker idle
 // and at its measured punch contact, the keeper idle and mid-dive, lit like the night arena. Writes
 // artifacts/character-sheet.png (git-ignored); nothing is added to the game for it (game.js is blanked in the test browser).
-import {createRequire} from 'node:module';import {mkdir} from 'node:fs/promises';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
-const browser=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+import {chromium,CHROME} from './qa-env.mjs';import {mkdir} from 'node:fs/promises';
+const browser=await chromium.launch({executablePath:CHROME,headless:true});
 const page=await browser.newPage({viewport:{width:1200,height:760}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
   await mkdir('artifacts',{recursive:true});

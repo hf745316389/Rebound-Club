@@ -34,7 +34,7 @@
       <div class="result-pop" id="result-pop" aria-live="polite"></div>
       <div class="hit-pop" id="hit-pop" aria-live="polite"></div>
       <div class="tutorial-bar" id="tutorial-bar" hidden><span class="tutorial-step" id="tutorial-step">1/3</span><span class="tutorial-tip" id="tutorial-tip" aria-live="polite"></span><button class="tutorial-skip" id="tutorial-skip">跳过教学</button></div>
-      <div class="combo" id="combo"><b>0</b><span>连击</span></div>
+      <div class="combo" id="combo"><b>0</b><span>连击</span><em class="chain" id="chain" hidden></em></div>
       <div class="overlay" id="overlay" hidden><div class="overlay-content" id="overlay-content"></div></div>
     </div>
     <div class="controls"><div class="move-control" id="move-control" role="group" aria-label="左右移动" aria-describedby="move-hint"><div class="move-buttons"><button type="button" class="move-button" id="move-left" aria-label="向左移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M26 16H6m9-9-9 9 9 9"/></svg></button><button type="button" class="move-button" id="move-right" aria-label="向右移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16h20m-9-9 9 9-9 9"/></svg></button></div><small id="move-hint">按住移动 · 挥击时定方向</small></div><div class="attack-wrap"><span class="attack-hint" id="attack-hint">看准再出手</span><div class="skill-dock" id="skill-dock"><div class="energy" id="energy" role="meter" aria-label="能量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><i id="energy-fill"></i><b class="energy-tick" aria-hidden="true"></b><span id="energy-value">50</span></div><div class="skill-buttons"><button class="skill-button spin" id="skill-spin" aria-label="旋转回击，消耗50能量"><b>旋转<em id="spin-dir"></em></b><small>50 · J</small><span class="skill-state" id="spin-state">待开球</span></button><button class="skill-button burst" id="skill-burst" aria-label="爆发回击，消耗100能量"><b>爆发</b><small>100 · K</small><span class="skill-state" id="burst-state">待开球</span></button></div></div><button id="attack" class="attack-button" aria-label="挥击" disabled><svg viewBox="0 0 48 44" aria-hidden="true"><path d="M13 28c-8-2-9-12-4-15 2-1 5 0 7 3V9c0-4 6-4 6 0V6c0-4 6-4 6 0v2c0-4 6-4 6 0v3c1-4 7-3 7 1v10c0 6-5 10-11 10H17zM17 32v5h14v-5"/></svg><span>挥击</span><small>SPACE</small></button></div></div>
@@ -43,6 +43,7 @@
   <aside class="sidebar prep-panel lobby-menu" aria-label="赛前准备">
     <div class="lobby-options">
       <button class="lobby-option lobby-level" data-action="choose-level" aria-label="选择关卡"><span id="prep-stage">第 01 关</span><b id="prep-level-name">初次交锋</b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+      <button class="lobby-option lobby-player" data-action="choose-player" aria-label="选择人物"><span>人物</span><b id="prep-player-name">游侠</b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
     </div>
     <button class="primary-button start-button" id="start-match" data-action="start">单机对战<small class="start-sub">打 AI 门将</small> <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 10 7-10 7Z"/></svg></button>
     <a class="lobby-duel" href="./duel.html" data-dev-only>玩家联机对战<small>两边都能进攻 · 测试版</small></a>
@@ -53,12 +54,13 @@
 </div>
 <dialog id="selection-dialog" aria-labelledby="selection-title">
   <button class="selector-close" id="selection-close" aria-label="关闭赛前选择">×</button><span class="eyebrow">赛前准备</span><h2 id="selection-title">选择关卡</h2>
+  <section class="player-options" hidden><p class="dialog-intro">每个人物有一点小差异，不影响能不能过关 · 都穿主队橙色</p><div class="player-grid" id="players"></div><p class="player-style" id="player-style"></p></section>
   <section class="level-options"><p class="dialog-intro" id="prep-rule">进 2 球通关 · 丢 3 球结束</p><div class="level-grid" id="levels"></div><p class="selection-note" id="level-note"></p></section>
   <button class="primary-button" id="selection-done">就这样，上场</button>
 </dialog>
 <dialog id="help-dialog" aria-labelledby="help-title">
   <button class="dialog-close" aria-label="关闭玩法说明">×</button><span class="eyebrow">上场指南</span><h2 id="help-title">守住自家，攻破对面。</h2>
-  <ol><li><b>先移动到位</b><p>手机按住左、右箭头移动，松开停止；电脑按 A / D 或方向键。地上的影子就是球的位置。</p></li><li><b>按住方向再挥击</b><p>人物前方方框是击球范围，框变亮时挥击。挥击那一刻按住 ← 就打向球门左边，按住 → 打向右边，都不按打直线；挥击时人物会站定。橙色横条是重炮甜点：在那里出手打得更快，早一点晚一点只是普通球，方向不变。</p></li><li><b>技能：旋转与爆发</b><p>普通回击攒能量（完美 +25，其他 +12）。50 能量放「旋转」（J），球沿真实弧线拐弯，落点比普通球更靠门柱：按住 ← 左旋、按住 → 右旋，都不按时拐向门将空的一侧，按钮上会显示方向。满 100 放「爆发」（K）：短暂蓄力后高速打出，蓄力时按住的方向就是出球方向，接球范围略宽。两种技能都要等来球进框，门将依然可能扑住。</p></li><li><b>找到门将的空当</b><p>射门终点变绿是空当，变红是门将封住了路线。按住另一侧变向，或用旋转、重炮突破，进满目标球数即可通关。第 3 关起门将会记住你的习惯：一直左右交替会被预判，球进框后提前按住的方向也会被它看到，最后一刻再换方向能骗过它。</p></li></ol>
+  <ol><li><b>先移动到位</b><p>手机按住左、右箭头移动，松开停止；电脑按 A / D 或方向键。地上的影子就是球的位置。</p></li><li><b>按住方向再挥击</b><p>人物前方方框是击球范围，框变亮时挥击。挥击那一刻按住 ← 就打向球门左边，按住 → 打向右边，都不按打直线；挥击时人物会站定。橙色横条是重炮甜点。出手时机决定球路，方向不变：比甜点早出手是高吊球，慢一些，从球门上区进；正中出手是重炮，从中区进；晚出手是低平快球，从下区进。第 3 关起，比甜点早一点出手并按住方向，球会先打向那侧的墙，再弹到另一边的门角：门将只看直线，撞墙后才会回头追。进球分 = 直线 1000 / 借一次墙 1500 / 借两次 2500，再乘得分区：下区 ×1、中区 ×2、上区 ×3。</p></li><li><b>技能：旋转与爆发</b><p>普通回击攒能量（完美 +25，其他 +12）。50 能量（法师 40）放「旋转」（J），球沿真实弧线拐弯，落点比普通球更靠门柱：按住 ← 左旋、按住 → 右旋，都不按时拐向门将空的一侧，按钮上会显示方向。满 100 放「爆发」（K）：短暂蓄力后高速打出，蓄力时按住的方向就是出球方向，接球范围略宽。两种技能都要等来球进框，门将依然可能扑住。</p></li><li><b>人物各有一点小差异</b><p>游侠手感标准；兜帽侠移动快 10%、接球框窄 5%；大胡子重炮球速 +10%、收招慢 40%；法师「旋转」只要 40 能量、重炮球速 −5%；骑士接球框宽 10%、移动慢 5%。差异很小，不影响能不能过关。</p></li><li><b>完美连击与火球</b><p>连续打在橙色甜点上是完美连击，右上角的 5 格会一格格点亮；打早、打晚、软球或丢球就断，进球、被扑、放技能不断。连到 3 次加 500 分；连到 5 次拿到火球：下一次触球打出的就是火球，只要飞进门框，门将就挡不住。</p></li><li><b>找到门将的空当</b><p>射门终点变绿是空当，变红是门将封住了路线。按住另一侧变向，或用旋转、重炮突破，进满目标球数即可通关。第 3 关起门将会记住你的习惯：一直左右交替会被预判，球进框后提前按住的方向也会被它看到，最后一刻再换方向能骗过它。</p></li></ol>
   <p class="dialog-tip">挥空需要收招，连按容易漏球。前几关提供练习保护，对局内会显示剩余练习次数。</p><button class="primary-button" id="help-close">明白了</button><button class="text-button replay-tutorial" id="replay-tutorial">重新体验第一关教学</button>
 </dialog>
 <noscript>请开启 JavaScript 以游玩反弹守卫。</noscript>

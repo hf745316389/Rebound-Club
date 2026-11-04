@@ -5,13 +5,16 @@ import * as THREE from './vendor/three.module.min.js';
 import {mergeGeometries} from './vendor/BufferGeometryUtils.js';
 import {clone as cloneRig} from './vendor/SkeletonUtils.js';
 import {buildGlove,mergeRigidParts} from './art.mjs';
-import {CHARACTERS} from './characters.mjs';
+import {CHARACTERS,DEFAULT_PLAYER,playerSpec} from './characters.mjs';
 
 // Both characters as {scene, animations}; `load(url)` is GLTFLoader.loadAsync in the page and a file parser in tests.
-export async function loadCharacterAssets(load){
-  const out={};
-  for(const [role,c] of Object.entries(CHARACTERS))out[role]=await load(c.file);
-  return out;
+// `player` picks the striker's figure (characters.mjs PLAYERS); if its file fails, the default figure is loaded instead.
+// The result says which figure it holds (`player`).
+export async function loadCharacterAssets(load,{player=DEFAULT_PLAYER}={}){
+  const keeper=await load(CHARACTERS.keeper.file);
+  let spec=playerSpec(player),striker;
+  try{striker=await load(spec.file);}catch(e){if(spec.id===DEFAULT_PLAYER)throw e;spec=playerSpec(DEFAULT_PLAYER);striker=await load(spec.file);}
+  return {striker,keeper,player:spec.id};
 }
 
 const toonRamp=(()=>{const t=new THREE.DataTexture(new Uint8Array([110,190,255]),3,1,THREE.RedFormat);t.minFilter=t.magFilter=THREE.NearestFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;})();
@@ -94,7 +97,9 @@ export function createActor(gltf,spec,name){
   model.updateMatrixWorld(true);
 
   // One skinned body: the parts share a skeleton and an atlas, so they merge into a single draw (plus its outline).
-  const parts=[];model.traverse(o=>{if(o.isSkinnedMesh)parts.push(o);else if(o.isMesh)o.visible=false;});
+  // The one prop the spec keeps (a hat on the head bone) stays a rigid mesh of its own; every other prop is hidden.
+  const parts=[];let hat=null;model.traverse(o=>{if(o.isSkinnedMesh)parts.push(o);else if(o.isMesh){if(spec.hat&&o.name===spec.hat)hat=o;else o.visible=false;}});
+  if(spec.hat&&!hat)throw Error(`${name}: missing hat ${spec.hat}`);
   if(!parts.length)throw Error(`${name}: no skinned body`);
   const first=parts[0],keep=['position','normal','uv','skinIndex','skinWeight'];
   for(const p of parts)if(!p.bindMatrix.equals(first.bindMatrix))throw Error(`${name}: body parts are bound differently`);
@@ -120,6 +125,10 @@ export function createActor(gltf,spec,name){
   for(let i=0;i<pos.count;i++){const j=dominant(i);if(j===joint(bones.chest)||j===joint(bones.spine))chestBox.expandByPoint(v1.fromBufferAttribute(pos,i).applyMatrix4(body.matrixWorld));}
 
   const ink=outlineMaterial((spec.outline??.022)/scale);addOutline(body,ink);
+  // The hat keeps the atlas as shipped (the kit recolour is for clothes), and its size never counts toward the height.
+  if(hat){const old=hat.material;hat.material=toonMaterial(old.map?{map:old.map}:{color:'#d9d2c3'},spec.rim);old.dispose?.();
+    hat.name='player-hat';hat.castShadow=true;hat.receiveShadow=true;if(spec.hatScale)hat.scale.multiplyScalar(spec.hatScale);
+    hat.updateMatrixWorld(true);addOutline(hat,ink);}
 
   // Back number on the chest, placed in the bind pose then carried by the chest bone.
   if(spec.number){const size=.4/scale,tag=new THREE.Mesh(new THREE.PlaneGeometry(size,size),numberMaterial(spec.number));
@@ -170,7 +179,7 @@ export function createActor(gltf,spec,name){
   bones.hips.getWorldPosition(v1);const hipHeight=v1.y;
 
   const actor={
-    root,model,body,gloves,bones,mixer,scale,hipHeight,height:spec.height,
+    root,model,body,hat,gloves,bones,mixer,scale,hipHeight,height:spec.height,
     duration:logical=>actions.get(logical).getClip().duration,
     // layers: [logicalClip, time, weight]; weights should add up to 1. Loops wrap; one-shots clamp to their end.
     // The mixer only writes a bone whose blended value changed since its last update, so every bone first goes back to

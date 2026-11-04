@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,startGame,stepGame,attack,useSkill,swingPreview,inHitRange,spinPreview,crossingFrom,WEAPONS,LEVELS,SKILLS,PLAYER_Z,PERFECT_BAND,POWER,RALLY_STEP,AIM_SHARE,PACE} from '../dist/core.mjs';
 
-// Aim comes from the direction held at contact; timing only decides power.
+// Aim comes from the direction held at contact; timing decides power and height (zones.test.mjs).
 function play(level=0,weapon='glove'){const s=createGame(level,weapon);s.practiceLeft=0;startGame(s);stepGame(s,1,0);return s;}
 function incoming(s,x=0,z=4){const v=s.level.speed*s.rally;s.ball={x,z,vx:0,vz:-v,z0:z,z1:PLAYER_Z};s.player.x=x;s.hitstop=0;}
 const sweet=s=>PLAYER_Z+WEAPONS[s.weapon].reach*.5;
@@ -14,10 +14,11 @@ const speed=b=>Math.hypot(b.vx,b.vz);
 test('按住左键击中打向球门左侧，右键打向右侧，落点固定在门宽 80% 处',()=>{
   for(const level of [0,5]){
     const g=LEVELS[level].goalHalf*AIM_SHARE;
+    // Contact behind the sweet spot: from level 3 an early one with a side held banks instead (bank.test.mjs).
     for(const x of [-2,0,2]){
-      let s=play(level);incoming(s,x);swingAt(s,sweet(s)+.3,-1);
+      let s=play(level);incoming(s,x);swingAt(s,sweet(s)-.3,-1);
       assert.ok(s.ball.vz>0);assert.equal(s.lastShot,'left');assert.ok(Math.abs(goalX(s)+g)<1e-6,`关${level+1} x=${x} 左 ${goalX(s)}`);
-      s=play(level);incoming(s,x);swingAt(s,sweet(s)+.3,1);
+      s=play(level);incoming(s,x);swingAt(s,sweet(s)-.3,1);
       assert.equal(s.lastShot,'right');assert.ok(Math.abs(goalX(s)-g)<1e-6,`关${level+1} x=${x} 右 ${goalX(s)}`);
     }
   }

@@ -1,15 +1,16 @@
-// Packs the two playable characters into dist/models/ from their source GLBs, keeping only what the game uses:
-// the clips listed in dist/characters.mjs and the skinned body meshes (weapons, hats and capes hanging off bones are
-// dropped). Unreferenced accessors and buffer views go too, and the binary chunk is rebuilt compactly. No dependencies.
+// Packs the keeper and every figure a player may pick (dist/characters.mjs CHARACTERS.keeper and PLAYERS) into
+// dist/models/ from their source GLBs, keeping only what the game uses: the clips listed in dist/characters.mjs, the
+// skinned body meshes and the one hat a figure names (other weapons, hats and capes hanging off bones are dropped). Unreferenced accessors and buffer views go too, and the binary chunk is rebuilt compactly. No dependencies.
 //
 // Source (placeholder art): KayKit Character Pack: Adventurers 1.0, CC0, by Kay Lousberg.
 //   https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 at 672074b73ba276876a19e8816ecdc5241817ab47
-//   Copy addons/kaykit_character_pack_adventures/Characters/gltf/{Rogue,Barbarian}.glb and LICENSE.txt from that tree
-//   into vendor-download/kaykit/ (git-ignored), then run:  node scripts/pack-characters.mjs [sourceDir]
+//   Point it at that tree's addons/kaykit_character_pack_adventures/Characters/gltf/ (all five figures), or copy the
+//   .glb files and LICENSE.txt into vendor-download/kaykit/ (git-ignored), then run:  node scripts/pack-characters.mjs [sourceDir]
+//   The licence file is copied from sourceDir, or from its pack root (../../LICENSE.txt) when not beside the models.
 import {readFile,writeFile,mkdir,copyFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {CHARACTERS} from '../dist/characters.mjs';
+import {CHARACTERS,PLAYERS,playerSpec} from '../dist/characters.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const srcDir=path.resolve(process.argv[2]??path.join(root,'vendor-download','kaykit')),outDir=path.join(root,'dist');
@@ -29,11 +30,12 @@ function writeGlb(json,bin){
   return Buffer.concat([head,chunk(j,'JSON'),chunk(b,'BIN\0')]);
 }
 
-function pack(json,bin,clips){
+function pack(json,bin,clips,hat){
   if(json.accessors.some(a=>a.sparse))throw Error('sparse accessors are not supported');
   const missing=clips.filter(c=>!json.animations?.some(a=>a.name===c));if(missing.length)throw Error('missing clips: '+missing);
-  // Bodies are skinned; anything else carried by a node is a prop.
-  for(const n of json.nodes)if(n.mesh!=null&&n.skin==null)delete n.mesh;
+  // Bodies are skinned; anything else carried by a node is a prop, and only the named hat is kept.
+  if(hat&&!json.nodes.some(n=>n.name===hat&&n.mesh!=null))throw Error('missing hat '+hat);
+  for(const n of json.nodes)if(n.mesh!=null&&n.skin==null&&n.name!==hat)delete n.mesh;
   json.animations=json.animations.filter(a=>clips.includes(a.name));
   const meshIndex=new Map();const meshes=[];
   for(const n of json.nodes)if(n.mesh!=null){if(!meshIndex.has(n.mesh)){meshIndex.set(n.mesh,meshes.length);meshes.push(json.meshes[n.mesh]);}n.mesh=meshIndex.get(n.mesh);}
@@ -66,12 +68,15 @@ function pack(json,bin,clips){
 
 await mkdir(path.join(outDir,'models'),{recursive:true});
 const report=[];
-for(const [role,c] of Object.entries(CHARACTERS)){
+// The keeper, then each figure (the default figure is CHARACTERS.striker, written to its usual file).
+const specs=[['keeper',CHARACTERS.keeper],...PLAYERS.map(p=>['player:'+p.id,playerSpec(p.id)])];
+for(const [role,c] of specs){
   const srcFile=path.join(srcDir,c.source),before=await readFile(srcFile);
-  const {json,bin}=readGlb(before),packed=pack(json,bin,[...new Set(Object.values(c.clips))]);
+  const {json,bin}=readGlb(before),packed=pack(json,bin,[...new Set(Object.values(c.clips))],c.hat);
   const out=writeGlb(packed.json,packed.bin);await writeFile(path.join(outDir,c.file),out);
   report.push({role,source:c.source,file:c.file,beforeKB:Math.round(before.length/1024),afterKB:Math.round(out.length/1024),
     clips:packed.json.animations.length,meshes:packed.json.meshes.length,accessors:packed.json.accessors.length});
 }
-await copyFile(path.join(srcDir,'LICENSE.txt'),path.join(outDir,'models','KAYKIT-LICENSE.txt'));
+const licence=[path.join(srcDir,'LICENSE.txt'),path.join(srcDir,'..','..','LICENSE.txt')];
+await copyFile(licence[0],path.join(outDir,'models','KAYKIT-LICENSE.txt')).catch(()=>copyFile(licence[1],path.join(outDir,'models','KAYKIT-LICENSE.txt')));
 console.log(JSON.stringify(report,null,1));

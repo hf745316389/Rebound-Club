@@ -18,4 +18,5 @@ async function parse(file){
   if(!files.has(file))files.set(file,withoutImages(await readFile(new URL('../../dist/'+file,import.meta.url))));
   return new Promise((resolve,reject)=>new GLTFLoader().parse(files.get(file).slice(0),'',resolve,reject));
 }
-export const loadCharacters=()=>loadCharacterAssets(parse);
+// `options.player` picks the striker's figure, as in the page (dist/characters.mjs PLAYERS).
+export const loadCharacters=options=>loadCharacterAssets(parse,options);

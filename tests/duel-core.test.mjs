@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,stepGame,attack,useSkill,PLAYER_Z,WEAPONS} from '../dist/core.mjs';
+import {createGame,stepGame,attack,useSkill,PLAYER_Z,WEAPONS,EARLY_SPEED,LATE_SPEED} from '../dist/core.mjs';
 import {createDuel,startDuel,stepDuel,duelAttack,duelSkill,toLocal,fromLocal,mirrorBall,localBall,COURT,DUEL,DUEL_ACTIVE} from '../dist/duel-core.mjs';
 
 const near=(a,b,eps=1e-9)=>Math.abs(a-b)<eps;
@@ -11,8 +11,12 @@ function duelWith(side,ball,me=0,opp=0){
 }
 // The single-player level 1 position at the duel's ball speed (design Amendments A3): the same rules, the same pace.
 function singleWith(ball,me=0,keeper=0){const g=createGame(0);g.level={...g.level,speed:DUEL.speed};g.phase='playing';Object.assign(g.ball,{z0:ball.z,z1:PLAYER_Z,...ball});g.player.x=me;g.keeper.x=g.keeper.target=keeper;g.practiceLeft=0;return g;}
-// Steps until the first contact and returns the outgoing velocity in the striker's own view.
-function strikeSingle(g,axis,lead){for(let i=0;i<lead;i++)stepGame(g,1/120,axis);attack(g);for(let i=0;i<120&&!g.swing?.hit&&g.swing;i++)stepGame(g,1/120,axis);return g.swing?.hit?{vx:g.ball.vx,vz:g.ball.vz,kind:g.lastShot}:null;}
+// Steps until the first contact and returns the outgoing velocity in the striker's own view. The duel has no height
+// zones, so a clean single-player hit's timing pace (early lob slower, late drive quicker) is taken out.
+function strikeSingle(g,axis,lead){
+  for(let i=0;i<lead;i++)stepGame(g,1/120,axis);attack(g);for(let i=0;i<120&&!g.swing?.hit&&g.swing;i++)stepGame(g,1/120,axis);if(!g.swing?.hit)return null;
+  const pace=g.lastShot==='straight'?(g.shot.zone==='top'?EARLY_SPEED:LATE_SPEED):1;return {vx:g.ball.vx/pace,vz:g.ball.vz/pace,kind:g.lastShot};
+}
 function strikeDuel(s,side,axis,lead){const ins=()=>({[side]:{axis}});for(let i=0;i<lead;i++)stepDuel(s,1/120,ins());duelAttack(s,side);
   for(let i=0;i<120&&s.players[side].swing&&!s.players[side].swing.hit;i++)stepDuel(s,1/120,ins());if(!s.players[side].swing?.hit)return null;const l=localBall(s,side);return {vx:l.vx,vz:l.vz,kind:s.players[side].lastShot};}
 
@@ -25,7 +29,7 @@ test('对战视角：B 的本地视角来回转换不变', ()=>{
   const l=toLocal(s,'b');assert.ok(near(l.ball.x,-1.3)&&near(l.ball.z,COURT-6.2)&&near(l.me.x,-2.2)&&near(l.opp.x,.7));
 });
 
-test('对战击球与单机一致：同一处境下两边的出球种类、角度、速度都和单机相同', ()=>{
+test('对战击球与单机一致：同一处境下两边的出球种类、角度都和单机相同，速度只差单机按时机改球路的倍数', ()=>{
   const sweet=PLAYER_Z+WEAPONS.glove.reach*.5;let cases=0;
   for(const lead of [0,8,13,18,25])for(const axis of [-1,0,1])for(const me of [-1.2,0,.8]){
     const ball={x:me+.3,z:sweet+1.2,vx:-.4,vz:-DUEL.speed};

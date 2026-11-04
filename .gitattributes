@@ -1,0 +1,4 @@
+# 统一 LF：不论各人 core.autocrlf 怎么设，检出的文件和构建出的发布包都逐字节一致（SHA256SUMS 才对得上）
+* text=auto eol=lf
+*.glb binary
+*.png binary

@@ -1,8 +1,6 @@
-import {createRequire} from 'node:module';
+import {chromium,CHROME} from './qa-env.mjs';
 import {mkdir} from 'node:fs/promises';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
-const browser=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+const browser=await chromium.launch({executablePath:CHROME,headless:true});
 const errors=[];await mkdir('artifacts/crowd',{recursive:true});
 try{
  const p=await browser.newPage({viewport:{width:1200,height:700}});p.on('pageerror',e=>errors.push(e.message));

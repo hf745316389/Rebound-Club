@@ -13,12 +13,15 @@ body[data-screen=ready] .game-shell{height:100%;min-height:0;width:100%;display:
 body[data-screen=ready] .game-top,body[data-screen=ready] .court-badge,body[data-screen=ready] .court-stamp{display:none}
 body[data-screen=ready] .court-wrap{border:0;border-radius:0;background:#e7e6d6;-webkit-mask-image:linear-gradient(#000 90%,transparent);mask-image:linear-gradient(#000 90%,transparent)}
 body[data-screen=ready] .lobby-menu{width:min(100%,420px);justify-self:center;align-self:end;background:transparent;border:0;box-shadow:none;padding:12px 0 0;border-radius:0}
-body[data-screen=ready] .lobby-options{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:12px}
+body[data-screen=ready] .lobby-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}
 body[data-screen=ready] .lobby-option{height:52px;min-width:0;display:flex;align-items:center;gap:10px;padding:0 15px;border:1px solid #aebd9980;background:#f6f5e8a6;border-radius:16px;text-align:left;transition:background .12s}
 body[data-screen=ready] .lobby-option:hover{background:#fffbee}
 body[data-screen=ready] .lobby-option:active{background:#eaf0d7}
 body[data-screen=ready] .lobby-option>b{font-size:14px;font-weight:700;white-space:nowrap}
 body[data-screen=ready] .lobby-level>span{font-size:10px;color:#687b56;white-space:nowrap}
+/* Level and figure sit side by side (same height as one row), so each name shortens with an ellipsis when narrow. */
+body[data-screen=ready] .lobby-option>b{min-width:0;overflow:hidden;text-overflow:ellipsis}
+body[data-screen=ready] .lobby-player>span{font-size:10px;color:#687b56;white-space:nowrap}
 body[data-screen=ready] .lobby-option>svg{margin-left:auto;width:15px;height:15px;fill:none;stroke:#738461;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 body[data-screen=ready] .start-button{height:62px;margin:0;padding:0 22px;justify-content:center;gap:14px;border-radius:18px;font-size:19px;font-weight:800;letter-spacing:2px;box-shadow:0 5px 0 #bd4f30,0 10px 22px #8e6d3c1a}
 body[data-screen=ready] .start-button svg{width:22px;height:22px;fill:currentColor;stroke:none}
@@ -39,17 +42,17 @@ body[data-screen=ready] #save-note{font-size:11px;color:#805132;text-align:cente
   body[data-screen=ready] .icon-button{height:36px;min-width:36px}
   body[data-screen=ready] .layout{max-width:520px;padding:0 18px max(24px,env(safe-area-inset-bottom))}
   body[data-screen=ready] .lobby-menu{padding-top:10px}
-  body[data-screen=ready] .lobby-options{grid-template-columns:minmax(0,1fr);gap:8px}
+  body[data-screen=ready] .lobby-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   body[data-screen=ready] .lobby-option{height:50px;padding:0 12px;gap:8px}
   body[data-screen=ready] .lobby-option>b{font-size:13px}
-  body[data-screen=ready] .lobby-level>span{font-size:9px}
+  body[data-screen=ready] .lobby-level>span,body[data-screen=ready] .lobby-player>span{font-size:9px}
   body[data-screen=ready] .start-button{height:58px;font-size:18px}
   body[data-screen=ready] .lobby-duel{height:46px;font-size:14px}
 }
 @media(max-width:359px){
   body[data-screen=ready] .site-header{padding:0 14px}
   body[data-screen=ready] .layout{padding-left:14px;padding-right:14px}
-  body[data-screen=ready] .lobby-options{grid-template-columns:minmax(0,1fr)}
+  body[data-screen=ready] .lobby-options{grid-template-columns:repeat(2,minmax(0,1fr))}
   body[data-screen=ready] .lobby-option{padding-left:10px;padding-right:10px;gap:6px}
 }
 @media(max-height:570px) and (min-width:701px){
@@ -57,10 +60,10 @@ body[data-screen=ready] #save-note{font-size:11px;color:#805132;text-align:cente
   body[data-screen=ready] .site-header{height:56px;flex-basis:56px;padding:0 24px}
   body[data-screen=ready] .layout{max-width:1000px;grid-template-columns:minmax(0,1fr) 280px;grid-template-rows:minmax(0,1fr);grid-template-areas:"court prep";gap:18px;padding:0 24px max(18px,env(safe-area-inset-bottom))}
   body[data-screen=ready] .lobby-menu{align-self:center;padding:0}
-  body[data-screen=ready] .lobby-options{grid-template-columns:minmax(0,1fr);gap:8px}
+  body[data-screen=ready] .lobby-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   body[data-screen=ready] .lobby-option{padding:0 9px;gap:6px}
   body[data-screen=ready] .lobby-option>b{font-size:12px}
-  body[data-screen=ready] .lobby-level>span{font-size:9px}
+  body[data-screen=ready] .lobby-level>span,body[data-screen=ready] .lobby-player>span{font-size:9px}
   body[data-screen=ready] .start-button{height:56px}
   body[data-screen=ready] .lobby-duel{height:40px;margin-top:8px;font-size:13px}
 }
@@ -71,7 +74,7 @@ body[data-screen=ready] .icon-button{border-color:rgba(255,255,255,.18);backgrou
 body[data-screen=ready] .lobby-option{border-color:rgba(255,255,255,.12);background:rgba(20,27,56,.88);color:#f4f1ea}
 body[data-screen=ready] .lobby-option:hover{background:#1b2448}
 body[data-screen=ready] .lobby-option:active{background:#222c55}
-body[data-screen=ready] .lobby-level>span{color:#9aa6c9}
+body[data-screen=ready] .lobby-level>span,body[data-screen=ready] .lobby-player>span{color:#9aa6c9}
 body[data-screen=ready] .lobby-option>svg{stroke:#9aa6c9}
 body[data-screen=ready] .start-button{box-shadow:0 5px 0 #b8441c,0 10px 22px rgba(255,106,43,.25)}
 body[data-screen=ready] .lobby-record{color:#9aa6c9}

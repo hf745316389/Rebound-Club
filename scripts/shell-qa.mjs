@@ -1,10 +1,8 @@
 // Product-shell QA (node scripts/shell-qa.mjs, needs the local server on :4173): loading cover, haptics, share card.
 // Test-browser-only stubs record navigator.vibrate / navigator.share; game state is only read.
-import {createRequire} from 'node:module';import assert from 'node:assert/strict';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
+import {chromium,CHROME} from './qa-env.mjs';import assert from 'node:assert/strict';
 const SAVE=JSON.stringify({unlocked:5,scores:{0:2200},perfect:{},tutorialDone:true});
-const b=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+const b=await chromium.launch({executablePath:CHROME,headless:true});
 const R={},errors=[];
 const watch=(p,tag)=>{p.on('pageerror',e=>errors.push(`${tag}: ${e.message}`));p.on('console',m=>{if(m.type()==='error')errors.push(`${tag}: ${m.text()}`);});};
 

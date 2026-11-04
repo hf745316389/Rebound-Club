@@ -33,9 +33,9 @@ test('守门员行为是确定性的',()=>{
   const run=()=>{const s=play(2);for(let i=0;i<5;i++){incoming(s,i-2);swingAt(s,sweet(s)+.2*(i%3-1));resolve(s);}return JSON.stringify(s);};
   assert.equal(run(),run());
 });
-test('进球计分，重炮额外加分；进满目标立即通关',()=>{
+test('进球计分，重炮走中区 ×2；进满目标立即通关',()=>{
   const s=play();s.goals=LEVELS[0].goals-1;incoming(s,1.9);swingAt(s,sweet(s));const before=s.score;
-  assert.equal(resolve(s),'goal');assert.equal(s.phase,'won');assert.equal(s.score-before,1500);
+  assert.equal(resolve(s),'goal');assert.equal(s.phase,'won');assert.equal(s.score-before,2000);
 });
 test('进球后重置回合速度，倒数后从守门员处重新发球',()=>{
   const s=play();incoming(s,1.9);swingAt(s,sweet(s));assert.ok(s.rally>1);assert.equal(resolve(s),'goal');

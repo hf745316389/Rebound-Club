@@ -1,16 +1,16 @@
 // Release package QA: node scripts/release-qa.mjs release/<name>
-// Serves <name>/site at a sub-path on 127.0.0.2 (not localhost, so the page registers its service worker) and checks:
+// Serves <name>/site at a sub-path on rebound.localhost (not plain localhost, so the page registers its service worker;
+// Chrome always maps *.localhost to loopback as a secure context, while 127.0.0.2 is unreachable on macOS and some
+// Windows setups) and checks:
 // install manifest + icons, the offline cache holding the whole release, and a full start while offline.
-import {createRequire} from 'node:module';import assert from 'node:assert/strict';import http from 'node:http';import {readFile} from 'node:fs/promises';import path from 'node:path';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
+import {chromium,CHROME} from './qa-env.mjs';import assert from 'node:assert/strict';import http from 'node:http';import {readFile} from 'node:fs/promises';import path from 'node:path';
 const dir=path.resolve(process.argv[2]||'.'),site=path.join(dir,'site'),BASE='/games/rebound/',PORT=4195;
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.json':'application/json','.webmanifest':'application/manifest+json'};
 const server=http.createServer(async(req,res)=>{try{let p=decodeURIComponent(new URL(req.url,'http://x').pathname);if(!p.startsWith(BASE)){res.writeHead(404).end();return;}p=p.slice(BASE.length)||'index.html';if(p.endsWith('/'))p+='index.html';
   const file=path.resolve(site,p);if(!file.startsWith(site)){res.writeHead(403).end();return;}const body=await readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'}).end(body);}catch{res.writeHead(404).end();}});
-await new Promise(r=>server.listen(PORT,'127.0.0.2',r));
-const URL_=`http://127.0.0.2:${PORT}${BASE}`,version=JSON.parse(await readFile(path.join(site,'version.json'),'utf8')).name;
-const b=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+await new Promise(r=>server.listen(PORT,'127.0.0.1',r));
+const URL_=`http://rebound.localhost:${PORT}${BASE}`,version=JSON.parse(await readFile(path.join(site,'version.json'),'utf8')).name;
+const b=await chromium.launch({executablePath:CHROME,headless:true});
 const ctx=await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true}),p=await ctx.newPage(),errors=[];
 p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
 const R={};
@@ -18,7 +18,7 @@ try{
   await p.goto(URL_);await p.waitForFunction(()=>document.body.dataset.booted==='1');
   await p.evaluate(()=>navigator.serviceWorker.ready);await p.reload();await p.waitForFunction(()=>document.body.dataset.booted==='1');
   R.controlled=await p.evaluate(()=>!!navigator.serviceWorker.controller);
-  const sw=await (await p.request.get(URL_+'sw.js')).text(),files=JSON.parse(sw.match(/FILES=(\[.*?\]);/)[1]);
+  const sw=await readFile(path.join(site,'sw.js'),'utf8'),files=JSON.parse(sw.match(/FILES=(\[.*?\]);/)[1]);
   R.cache=await p.evaluate(async v=>{const keys=await caches.keys(),c=await caches.open(v);return {keys,entries:(await c.keys()).length};},version);
   R.files=files.length;
   const manifest=await p.evaluate(async()=>{const href=document.querySelector('link[rel=manifest]').href,m=await (await fetch(href)).json();

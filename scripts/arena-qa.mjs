@@ -3,12 +3,10 @@
 //    with key presses only; the injected hook reads the game state and never changes it.
 // 2. The character models fail to load (every .glb request aborted): the page falls back to the 2D court, lifts the
 //    loading cover and a match can still start.
-import {createRequire} from 'node:module';import assert from 'node:assert/strict';import {mkdir} from 'node:fs/promises';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
+import {chromium,CHROME} from './qa-env.mjs';import assert from 'node:assert/strict';import {mkdir} from 'node:fs/promises';
 const OUT='artifacts/arena';await mkdir(OUT,{recursive:true});
 const SAVE=JSON.stringify({unlocked:5,scores:{0:2200},perfect:{},tutorialDone:true});
-const b=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+const b=await chromium.launch({executablePath:CHROME,headless:true});
 const errors=[],results={};
 async function open(viewport,{blockModels=false}={}){
   const p=await (await b.newContext({viewport,deviceScaleFactor:2})).newPage();

@@ -1,10 +1,11 @@
-import {SKILLS,GOAL_CAM,goalLock,useSkill,skillStatus,spinPreview,predictFlight,burstZone,LEVELS,WEAPONS,ACTIVE_PHASES,KEEPER_Z,KEEPER_REACH,FAR_WALL,GOAL_Z,createGame,startGame,stepGame,attack,pauseGame,resumeGame,ballHeight,hitZone,swingPreview,crossingFrom,foldX} from './core.mjs';
+import {SKILLS,GOAL_CAM,goalLock,useSkill,skillStatus,spinPreview,predictFlight,burstZone,LEVELS,WEAPONS,ACTIVE_PHASES,KEEPER_Z,KEEPER_REACH,FAR_WALL,GOAL_Z,createGame,startGame,stepGame,attack,pauseGame,resumeGame,ballHeight,hitZone,swingPreview,crossingFrom,foldX,GOAL_SCORE,ZONES,skillCost,CHAIN} from './core.mjs';
 import {createInput} from './input.mjs';
 import {renderShareCard,shareCard} from './share.mjs';
 import {loadProgress,saveProgress,needsTutorial} from './storage.mjs';
 import {create3DRenderer} from './scene3d.mjs';
 import {sound,buzz,setSound} from './sfx.mjs';
-import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE} from './ui.mjs';
+import {PLAYERS,playerSpec} from './characters.mjs';
+import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE,ZONE_NAME,styleSummary} from './ui.mjs';
 
 const $=id=>document.getElementById(id);
 // In a match tips float over the court as a caption: any change to the feedback line shows it for a few seconds.
@@ -18,8 +19,10 @@ let canvas=$('court'),ctx=null,court3D=null;
 const input=createInput();
 let storage;try{storage=window.localStorage;}catch{storage=null;}
 const progress=loadProgress(storage);
-let selected=0,game=createGame(),uiPhase='',soundOn=true;
+let selected=0,game=createGame(),uiPhase='',soundOn=!progress.muted;
 let shareShot=null,resultAt=0,lastTime=0,trail=[],particles=[],viewWidth=0,viewHeight=0,shake=0,lessonShown=false,skillIntroShown=false,fullHintShown=false;
+// Resuming a rally holds the court still for a countdown as long as the serve's, so both hands are back on the controls.
+const RESUME_HOLD=.8;let resumeHold=0;
 const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let matchStats=createMatchStats();
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -36,9 +39,31 @@ function selections(){
   $('prep-stage').textContent=`第 ${String(selected+1).padStart(2,'0')} 关`;
   $('best').textContent=progress.scores[selected]??'—';
   $('best-record').hidden=!progress.scores[selected];
+  players();
   $('save-note').hidden=progress.saved;$('save-note').textContent=progress.saved?'':'进度暂时无法保存';
 }
-function ready(tutorial=false){lessonShown=false;matchStats=createMatchStats();game=createGame(selected,'glove',{tutorial});trail=[];particles=[];input.reset();uiPhase='';selections();phaseUI();hud();}
+// The figure the lobby shows: a pick still loading, else the one on court (a figure that failed to load falls back to the
+// default), else the saved pick. The court's figure is also on the canvas (data-player) for checks.
+let pendingPlayer=null;
+const shownPlayer=()=>pendingPlayer??court3D?.player??playerSpec(progress.player).id;
+// The rules play the style (core.mjs STYLES) of the figure the lobby shows: the one on court, or a pick still loading,
+// or with no 3D court (2D fallback) the saved pick. A figure that failed to load plays as the default it falls back to.
+const pickedStyle=()=>playerSpec(shownPlayer()).style;
+// A figure's style in one line: its name, strength and cost.
+function styleLine(id){const s=styleSummary(playerSpec(id).style);return s.good.length?`${s.name}：${s.good.join('，')}；代价：${s.bad.join('，')}`:`${s.name}：标准手感，没有长处也没有代价`;}
+function players(){
+  const shown=shownPlayer();if(court3D?.player)canvas.dataset.player=court3D.player;if(game.phase==='ready')game.style=playerSpec(shown).style;$('prep-player-name').textContent=playerSpec(shown).name;$('player-style').textContent=styleLine(shown);
+  $('players').innerHTML=PLAYERS.map(p=>`<button class='player-card ${p.id===shown?'selected':''}' data-player='${p.id}' aria-label='${p.name}' aria-pressed='${p.id===shown}'><img src='./portraits/${p.id}.png' alt='' width='256' height='256'><b>${p.name}</b><small>${styleSummary(p.style).name}</small></button>`).join('');
+}
+// One dialog, two pickers: the lobby button says which one shows.
+function openSelection(mode){
+  const dialog=$('selection-dialog'),player=mode==='player';
+  dialog.querySelector('.player-options').hidden=!player;dialog.querySelector('.level-options').hidden=player;
+  $('selection-title').textContent=player?'选择人物':'选择关卡';dialog.showModal();
+  dialog.querySelector(player?'.player-card.selected':'.level-button.selected')?.focus();
+}
+// The lobby hides the pops with display:none, which would replay a leftover .show animation when the next match shows them.
+function ready(tutorial=false){$('result-pop').className='result-pop';$('hit-pop').className='hit-pop';lessonShown=false;resumeHold=0;matchStats=createMatchStats();game=createGame(tutorial?0:selected,'glove',{tutorial,style:pickedStyle()});trail=[];particles=[];input.reset();uiPhase='';selections();phaseUI();hud();}
 function overlay(html){$('overlay-content').innerHTML=html;$('overlay').hidden=false;}
 function phaseUI(){
   if(game.phase===uiPhase)return;
@@ -59,68 +84,88 @@ function phaseUI(){
     // The share card is drawn now, so the button can share a ready file inside the tap.
     const card={...r,level:selected+1,levelName:game.level.name},shot=shareShot={card,blob:null};
     renderShareCard(card).then(blob=>{if(shareShot!==shot)return;shot.blob=blob;const b=$('overlay-content').querySelector('[data-action=share]');if(b)b.disabled=false;}).catch(()=>{});
-    overlay(`<div class='overlay-symbol ${r.won?'':'loss'}'>${icon(r.won?'trophy':'retry')}</div><span class='eyebrow'>第 ${String(selected+1).padStart(2,'0')} 关 · ${game.level.name}</span><h3>${r.title}</h3><div class='result-subtitle'>${r.won?(selected===5?'六关全部完成，你就是守门王牌。':'这一球，打得有点漂亮。'):'稳住节奏，下一个空当属于你。'}</div><div class='result-score'>${r.goals}<small>/ ${r.target} 球</small></div><div class='result-highlight'>${icon('spark')}${r.highlight}</div><div class='result-stats'><span><b>${r.bestCombo}</b>最高连击</span><span><b>${r.powerHits}</b>重炮击球</span><span><b>${r.score}</b>本局得分</span></div>${r.won?'':`<div class='result-advice'><b>下局试试</b>${r.advice}</div>`}<button class='primary-button' data-action='${r.action}'>${r.actionLabel} ${icon(r.action==='next'?'arrow':'retry')}</button><div class='result-links'><button class='secondary-button share-button' data-action='share' disabled>${icon('spark')} 分享战绩</button><button class='secondary-button' data-action='ready'>返回俱乐部</button></div>`);
+    overlay(`<div class='overlay-symbol ${r.won?'':'loss'}'>${icon(r.won?'trophy':'retry')}</div><span class='eyebrow'>第 ${String(selected+1).padStart(2,'0')} 关 · ${game.level.name}</span><h3>${r.title}</h3><div class='result-subtitle'>${r.won?(selected===5?'六关全部完成，你就是守门王牌。':'这一球，打得有点漂亮。'):'稳住节奏，下一个空当属于你。'}</div><div class='result-score'>${r.goals}<small>/ ${r.target} 球</small></div><div class='result-highlight'>${icon('spark')}${r.highlight}</div><div class='result-stats'><span><b>${r.bestCombo}</b>最高连击</span><span><b>${r.powerHits}</b>重炮击球</span><span><b>${r.score}</b>本局得分</span></div>${r.conceded.length?`<div class='result-misses'><b>丢球 ${r.conceded.reduce((n,c)=>n+c.n,0)}${r.practiceConceded?`（练习 ${r.practiceConceded}）`:''}</b>${r.conceded.map(c=>`<span>${c.label} ${c.n}</span>`).join('')}</div>`:''}${r.won?'':`<div class='result-advice'><b>下局试试</b>${r.advice}</div>`}<button class='primary-button' data-action='${r.action}'>${r.actionLabel} ${icon(r.action==='next'?'arrow':'retry')}</button><div class='result-links'><button class='secondary-button share-button' data-action='share' disabled>${icon('spark')} 分享战绩</button><button class='secondary-button' data-action='ready'>返回俱乐部</button></div>`);
     input.reset();
   }else $('overlay').hidden=true;
   selections();
   if(previous!==screen){window.scrollTo(0,0);queueMicrotask(()=>{if(screen==='paused'||screen==='result')$('overlay-content').querySelector('.primary-button')?.focus({preventScroll:true});else if(screen==='match')canvas.focus({preventScroll:true});else $('start-match').focus({preventScroll:true});});}
 }
+// hud() runs every frame, so its writes go through put(), which skips a value the element already shows: a still HUD
+// then costs no style or layout work. key: 'text', 'html', a property ('hidden', 'disabled'), 'style.<name>' or an attribute.
+const shown=new WeakMap();
+function put(el,key,value){
+  let last=shown.get(el);if(!last)shown.set(el,last={});if(last[key]===value)return;last[key]=value;
+  if(key==='text')el.textContent=value;else if(key==='html')el.innerHTML=value;else if(key==='hidden'||key==='disabled')el[key]=value;
+  else if(key.startsWith('style.'))el.style[key.slice(6)]=value;else el.setAttribute(key,value);
+}
 function hud(){
-  $('progress').textContent=game.tutorial?`教学 ${game.tutorial.step+1} / 3`:`${game.goals} / ${game.level.goals}`;
-  $('progress-bar').style.width=`${game.goals/game.level.goals*100}%`;
-  $('hearts').innerHTML=[0,1,2].map(i=>`<span class="life ${i>=3-game.misses?'spent':''}">${icon('shield')}</span>`).join('');
-  $('hearts').setAttribute('aria-label',`剩余${3-game.misses}次机会`);
-  $('score').innerHTML=`${String(game.score).padStart(4,'0')} <small>分</small>`;
-  $('pause').disabled=!ACTIVE_PHASES.includes(game.phase);
-  $('attack').disabled=game.phase!=='playing';
+  put($('progress'),'text',game.tutorial?`教学 ${game.tutorial.step+1} / 3`:`${game.goals} / ${game.level.goals}`);
+  put($('progress-bar'),'style.width',`${game.goals/game.level.goals*100}%`);
+  put($('hearts'),'html',[0,1,2].map(i=>`<span class="life ${i>=3-game.misses?'spent':''}">${icon('shield')}</span>`).join(''));
+  put($('hearts'),'aria-label',`剩余${3-game.misses}次机会`);
+  put($('score'),'html',`${String(game.score).padStart(4,'0')} <small>分</small>`);
+  put($('pause'),'disabled',!ACTIVE_PHASES.includes(game.phase));
+  put($('attack'),'disabled',game.phase!=='playing');
   $('attack').classList.toggle('recovering',!!game.swing);
-  $('attack').querySelector('span').textContent=game.swing?'收招':'挥击';
-  const aimNow=input.axis(),aimWord=aimNow<0?'往左 ←':aimNow>0?'往右 →':'直线 ↑',cue=game.phase==='playing'&&!game.swing?swingPreview(game,aimNow):{kind:'none'};
+  put($('attack').querySelector('span'),'text',game.swing?'收招':'挥击');
+  const aimNow=input.axis(),aimWord=aimNow<0?'往左 ←':aimNow>0?'往右 →':'直线 ↑',cue=game.phase==='playing'&&!game.swing&&!resumeHold?swingPreview(game,aimNow):{kind:'none'};
   $('attack').classList.toggle('ready-cue',['clean','perfect'].includes(cue.kind));
-  $('attack-hint').textContent=game.swing?'收招中':cue.kind==='perfect'?`重炮时机 · ${aimWord}`:cue.kind==='clean'?`现在挥击 · ${aimWord}`:'看准再出手';
+  put($('attack-hint'),'text',game.swing?'收招中':cue.kind==='perfect'?`重炮时机 · ${aimWord}`:cue.kind==='clean'?`现在挥击 · ${aimWord}`:'看准再出手');
   const status={ready:'热身准备',serving:'发球准备',playing:'对决进行中',miss:'稳住，再来',goal:'进球！',skill:'爆发蓄力',paused:'已暂停',won:'本关完成',lost:'挑战结束'};
-  $('court-status').textContent=game.phase==='serving'?`发球倒数 ${Math.max(1,Math.ceil(game.countdown*2))}`:game.phase==='playing'&&game.rally>1.001?`对决进行中 · 球速 ×${game.rally.toFixed(2)}`:status[game.phase];
-  const teaching=!!game.tutorial&&[...ACTIVE_PHASES,'paused'].includes(game.phase);document.body.dataset.tutorial=teaching?'on':'';
-  $('tutorial-bar').hidden=!teaching;if(teaching){$('tutorial-step').textContent=`${game.tutorial.step+1}/3`;$('tutorial-tip').textContent=TUTORIAL_TIPS[game.tutorial.step];}
-  $('practice').hidden=!(game.practiceLeft>0&&ACTIVE_PHASES.includes(game.phase))||teaching;$('practice').textContent=`练习 ×${game.practiceLeft}`;
+  put($('court-status'),'text',game.phase==='serving'?`发球倒数 ${Math.max(1,Math.ceil(game.countdown*2))}`:resumeHold?`继续倒数 ${Math.ceil(resumeHold*2)}`:game.phase==='playing'&&game.rally>1.001?`对决进行中 · 球速 ×${game.rally.toFixed(2)}`:status[game.phase]);
+  const teaching=!!game.tutorial&&[...ACTIVE_PHASES,'paused'].includes(game.phase);put(document.body,'data-tutorial',teaching?'on':'');
+  put($('tutorial-bar'),'hidden',!teaching);if(teaching){put($('tutorial-step'),'text',`${game.tutorial.step+1}/3`);put($('tutorial-tip'),'text',TUTORIAL_TIPS[game.tutorial.step]);}
+  put($('practice'),'hidden',!(game.practiceLeft>0&&ACTIVE_PHASES.includes(game.phase))||teaching);put($('practice'),'text',`练习 ×${game.practiceLeft}`);
   // Energy bar and skill buttons: state in words, spin direction as an arrow, disabled-looking only via class.
-  $('energy-fill').style.width=`${game.energy}%`;$('energy-value').textContent=game.energy;$('energy').setAttribute('aria-valuenow',game.energy);
+  put($('energy-fill'),'style.width',`${game.energy}%`);put($('energy-value'),'text',String(game.energy));put($('energy'),'aria-valuenow',String(game.energy));
+  // A full bar keeps the burst button lit with its flame (styles.css .charged) until it is spent, ball in reach or not.
+  const charged=game.energy>=SKILLS.burst.cost;$('skill-burst').classList.toggle('charged',charged);$('energy').classList.toggle('charged',charged);
+  // The spin's cost depends on the style: its button and the tick on the energy bar follow it.
+  const spinCost=skillCost(game,'spin');put($('skill-spin').querySelector('small'),'text',`${spinCost} · J`);put(document.querySelector('.energy-tick'),'style.left',`calc(${spinCost/SKILLS.max*100}% - 1px)`);
   for(const kind of ['spin','burst']){const st=skillStatus(game,kind),b=$(`skill-${kind}`),label=SKILL_STATE[st.ok?'ok':st.reason];
-    b.classList.toggle('ready',st.ok);b.classList.toggle('low',st.reason==='energy');$(`${kind}-state`).textContent=label;
-    b.setAttribute('aria-label',`${kind==='spin'?'旋转回击，消耗50能量':'爆发回击，消耗100能量'}，${label}`);}
-  const pv=game.phase==='playing'&&game.ball.vz<0?spinPreview(game,aimNow):null;$('spin-dir').textContent=pv?(pv.dir==='left'?' ↺':' ↻'):'';
-  $('combo').style.opacity=game.combo>1?'1':'0';$('combo').querySelector('b').textContent=game.combo;
+    b.classList.toggle('ready',st.ok);b.classList.toggle('low',st.reason==='energy');put($(`${kind}-state`),'text',label);
+    put(b,'aria-label',`${kind==='spin'?`旋转回击，消耗${spinCost}能量`:'爆发回击，消耗100能量'}，${label}`);}
+  const pv=game.phase==='playing'&&game.ball.vz<0?spinPreview(game,aimNow):null;put($('spin-dir'),'text',pv?(pv.dir==='left'?' ↺':' ↻'):'');
+  // Perfect chain under the combo: CHAIN.fire pips toward the fireball, or the armed fireball.
+  const chainOn=game.chain>0||game.fire;put($('chain'),'hidden',!chainOn);put($('chain'),'class',game.fire?'chain fire':'chain');
+  put($('chain'),'html',game.fire?'火球就绪':Array.from({length:CHAIN.fire},(_,i)=>`<i class='${i<game.chain?'on':''}'></i>`).join(''));
+  put($('combo'),'style.opacity',game.combo>1||chainOn?'1':'0');put($('combo').querySelector('b'),'text',String(game.combo));
   for(const [id,direction] of [['move-left',-1],['move-right',1]]){
     const button=$(id),pressed=input.pressed(direction);
-    button.disabled=!ACTIVE_PHASES.includes(game.phase);
-    button.classList.toggle('pressed',pressed);button.setAttribute('aria-pressed',String(pressed));
+    put(button,'disabled',!ACTIVE_PHASES.includes(game.phase));
+    button.classList.toggle('pressed',pressed);put(button,'aria-pressed',String(pressed));
   }
 }
 function pop(text,miss=false){const el=$('hit-pop');el.textContent=text;el.className=`hit-pop${miss?' miss':''}`;void el.offsetWidth;el.classList.add('show');}
 // Shot quality pops mid-court; what the shot achieved gets its own banner at the top.
 function verdict(text,kind){const el=$('result-pop');el.textContent=text;el.className=`result-pop ${kind}`;void el.offsetWidth;el.classList.add('show');}
-function swing(){if(attack(game))sound('swing');}
+function swing(){if(resumeHold)return;if(attack(game))sound('swing');}
 // A refused request costs nothing and says why; acceptance is announced by the core's own events.
 function trySkill(kind){
-  if(!ACTIVE_PHASES.includes(game.phase))return;
+  if(!ACTIVE_PHASES.includes(game.phase)||resumeHold)return;
   const r=useSkill(game,kind,input.axis());
   if(!r.ok){sound('deny');pop(SKILL_STATE[r.reason]||'现在不行',true);}
 }
-// Finished or skipped: remember it and start the real level 1 from a brand-new state.
+// Finished or skipped: remember it. A first-time player goes straight into the real level 1 from a brand-new state; a
+// tutorial replayed from help goes back to the lobby on the level chosen there (the tutorial never touches `selected`).
 function finishTutorial(completed){
+  const firstTime=needsTutorial(progress);
   progress.tutorialDone=true;progress.saved=saveProgress(storage,progress);
+  if(!firstTime){ready();return;}
   selected=0;ready(false);startGame(game);sound('start');phaseUI();hud();
   verdict(completed?'教学完成 · 正式开始！':'已跳过教学 · 正式开始','info');$('feedback').textContent=game.level.lesson;lessonShown=true;
 }
-function beginTutorial(){selected=0;ready(true);startGame(game);sound('start');phaseUI();hud();}
+function beginTutorial(){ready(true);startGame(game);sound('start');phaseUI();hud();}
 function suspend(){pauseGame(game);input.reset();phaseUI();hud();}
 function fallbackRenderer(){
   court3D?.dispose();court3D=null;
   const replacement=canvas.cloneNode(false);canvas.replaceWith(replacement);canvas=replacement;
   ctx=canvas.getContext('2d');canvas.dataset.renderer='2d';viewWidth=0;viewHeight=0;
 }
+// Checks (scripts/player-qa.mjs) read the renderer: which figure is shown, how many worlds were built, GPU memory.
+window.qaCourt=()=>court3D;
 try{
-  court3D=create3DRenderer(canvas);canvas.dataset.renderer='3d';
+  court3D=create3DRenderer(canvas,undefined,{player:progress.player});canvas.dataset.renderer='3d';
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();suspend();fallbackRenderer();$('feedback').textContent='已切换兼容画面，可以继续防守。';});
 }catch{fallbackRenderer();}
 
@@ -128,20 +173,25 @@ document.querySelector('.app').addEventListener('click',e=>{
   const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
   if(action==='choose-level'){
     if(game.phase!=='ready')return;
-    const dialog=$('selection-dialog');dialog.showModal();
-    dialog.querySelector('.level-button.selected')?.focus();return;
+    openSelection('level');return;
   }
+  if(action==='choose-player'){if(game.phase!=='ready')return;openSelection('player');return;}
   if(action==='help'){suspend();$('help-dialog').showModal();return;}
   if(action==='share'){const b=e.target.closest('[data-action]');if(shareShot?.blob)shareCard(shareShot.blob,shareShot.card).then(how=>{if(how!=='cancelled')b.textContent=how==='shared'?'已分享':'战绩图已保存';});return;}
   if(['start','retry','next'].includes(action))goFullscreen();
   if(action==='start'){if(selected===0&&needsTutorial(progress)&&!game.tutorial){beginTutorial();return;}startGame(game);sound('start');}
-  if(action==='resume')resumeGame(game);
+  if(action==='resume'){resumeGame(game);if(game.phase==='playing')resumeHold=RESUME_HOLD;}
   if(action==='retry'){ready(!!game.tutorial);startGame(game);sound('start');}
   if(action==='ready')ready();
   if(action==='next'){selected=Math.min(5,selected+1);ready();startGame(game);sound('start');}
   phaseUI();hud();
 });
 $('levels').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!b.disabled){selected=Number(b.dataset.level);ready();$('levels').querySelector('.selected')?.focus();}});
+// A pick is saved at once and shown on the lobby court as soon as its model is in.
+$('players').addEventListener('click',e=>{const b=e.target.closest('[data-player]');if(!b||game.phase!=='ready')return;
+  progress.player=b.dataset.player;progress.saved=saveProgress(storage,progress);
+  if(court3D){const pick=pendingPlayer=progress.player;court3D.setPlayer(pick).then(()=>{if(pendingPlayer===pick)pendingPlayer=null;players();$('players').querySelector('.selected')?.focus();});}
+  players();$('players').querySelector('.selected')?.focus();});
 for(const id of ['selection-close','selection-done'])$(id).addEventListener('click',()=>$('selection-dialog').close());
 $('pause').addEventListener('click',suspend);
 $('tutorial-skip').addEventListener('click',()=>{if(game.tutorial)finishTutorial(false);});
@@ -178,7 +228,10 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>input.key(e.key,false));
 window.addEventListener('blur',suspend);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();lastTime=0;});
-$('sound').addEventListener('click',()=>{soundOn=!soundOn;setSound(soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').setAttribute('aria-label',soundOn?'关闭音效':'开启音效');$('sound').innerHTML=`${soundOn?'♪':'♩'} <span>音效${soundOn?'开':'关'}</span>`;if(soundOn)sound('start');else if(navigator.audioSession)navigator.audioSession.type='auto';});
+// The sound choice is saved with the progress, so a muted game stays muted after a reload.
+function showSound(){const b=$('sound');b.setAttribute('aria-pressed',String(soundOn));b.setAttribute('aria-label',soundOn?'关闭音效':'开启音效');b.innerHTML=`<span class="sound-glyph">${soundOn?'♪':'♩'}</span><span>音效${soundOn?'开':'关'}</span>`;}
+setSound(soundOn);showSound();
+$('sound').addEventListener('click',()=>{soundOn=!soundOn;setSound(soundOn);showSound();progress.muted=!soundOn;progress.saved=saveProgress(storage,progress);if(soundOn)sound('start');else if(navigator.audioSession)navigator.audioSession.type='auto';});
 $('help').addEventListener('click',()=>{suspend();$('help-dialog').showModal();});
 for(const b of [$('help-close'),document.querySelector('.dialog-close')])b.addEventListener('click',()=>$('help-dialog').close());
 
@@ -251,8 +304,10 @@ function hints(){
   const fl=game.ball.vz>0&&['playing','goal','won'].includes(game.phase)?predictFlight(game):null;
   if(fl){
     for(let i=1;i<fl.count;i++){if(fl.zs[i]<=game.ball.z)continue;const q=project(fl.xs[i],fl.zs[i]);ellipse(q.x,q.y,2,1.4,game.ball.kind==='spin'?'#37d6c0dd':'#fff6d8cc');}
-    const gx=fl.goal??fl.xs[fl.count-1],t=project(gx,GOAL_Z),open=Math.abs(gx)<=game.level.goalHalf,blocked=Math.abs(gx-game.keeper.x)<=KEEPER_REACH;
+    const gx=fl.goal??fl.xs[fl.count-1],t=project(gx,GOAL_Z),open=Math.abs(gx)<=game.level.goalHalf,blocked=!game.shot?.fire&&Math.abs(gx-game.keeper.x)<=KEEPER_REACH;
     ctx.beginPath();ctx.ellipse(t.x,t.y,9,5,0,0,Math.PI*2);ctx.strokeStyle=!open?'#c9c9b8':blocked?'#ff5a4a':'#5fe07a';ctx.lineWidth=3;ctx.stroke();
+    // The top-down view has no height: the shot's zone is its mult beside the end ring, in the zone's colour.
+    const zone=ZONES[game.shot?.zone];if(zone&&open)text(`×${zone.mult}`,t.x,t.y-9,11,zone.color,'800');
   }
   if(incoming&&skillStatus(game,'spin').ok){const sp=spinPreview(game,input.axis());for(let i=1;i<sp.count;i++){const q=project(sp.xs[i],sp.zs[i]);ellipse(q.x,q.y,2.4,1.6,'#37d6c0ee');}}
   if(incoming&&!game.swing&&game.energy>=SKILLS.burst.cost){const z=burstZone(game);polygon(quad(z.left,z.right,z.near,z.far),null,'#ff9a3caa',1.4);}
@@ -274,8 +329,9 @@ function keeper(){
 }
 function ball(){
   if(game.phase==='miss'||game.phase==='lost')return;
-  const b=game.ball,p=project(b.x,b.z),r=8.4*p.scale;
-  if(!reduceMotion)for(let i=0;i<trail.length;i++){const q=project(trail[i].x,trail[i].z);ellipse(q.x,q.y-10*q.scale,r*(i/trail.length)*.65,r*(i/trail.length)*.65,`rgba(246,207,105,${i/trail.length*.27})`);}
+  // A fireball (core.mjs CHAIN) leaves a red-orange trail.
+  const b=game.ball,p=project(b.x,b.z),r=8.4*p.scale,fireTrail=!!game.shot?.fire&&b.vz>0;
+  if(!reduceMotion)for(let i=0;i<trail.length;i++){const q=project(trail[i].x,trail[i].z);ellipse(q.x,q.y-10*q.scale,r*(i/trail.length)*.65,r*(i/trail.length)*.65,`rgba(${fireTrail?'255,90,40':'246,207,105'},${i/trail.length*.27})`);}
   ellipse(p.x+3,p.y+1,r*1.15,r*.36,'#0c302d3b');
   const y=p.y-(11+(ballHeight(game)-.73)*30)*p.scale;
   if(b.vz<0&&b.z<3.4){ctx.beginPath();ctx.ellipse(p.x,p.y,r*2.1,r*.7,0,0,Math.PI*2);ctx.strokeStyle='#f6d77ab0';ctx.lineWidth=1.5;ctx.stroke();}
@@ -290,13 +346,15 @@ function draw(dt){
   stage();hints();keeper();player();ball();
   for(const particle of particles){if(game.phase!=='paused'){particle.life-=dt;particle.x+=particle.vx*dt;particle.y+=particle.vy*dt;}ellipse(particle.x,particle.y,Math.max(.1,particle.life*5),Math.max(.1,particle.life*5),'#fff0a3');}
   particles=particles.filter(p=>p.life>0);
-  if(game.phase==='serving'){const n=Math.max(1,Math.ceil(game.countdown*2));round(190,233,70,66,16,'#fff5dbed');text(String(n),225,280,39,'#2c5f4a','900');}
+  const count=game.phase==='serving'?game.countdown:resumeHold;
+  if(count>0){const n=Math.max(1,Math.ceil(count*2));round(190,233,70,66,16,'#fff5dbed');text(String(n),225,280,39,'#2c5f4a','900');}
 }
 function frame(time){
   const dt=lastTime?Math.min((time-lastTime)/1000,.05):0;lastTime=time;
   // Key goals play their last moments in slow motion (goalLock); the rules just see ordinary, slower time.
   const lock=reduceMotion?null:goalLock(game),slow=lock?.key&&lock.t<=GOAL_CAM.slowWindow?GOAL_CAM.slow:1;
-  stepGame(game,dt*slow,input.axis());
+  const held=resumeHold>0&&game.phase==='playing';resumeHold=held?Math.max(0,resumeHold-dt):0;
+  stepGame(game,held?0:dt*slow,input.axis());
   const events=game.events;game.events=[];
   const aim={left:'往左 ←',right:'往右 →',straight:'直线 ↑'},say=text=>$('feedback').textContent=text;
   for(const e of events){
@@ -308,15 +366,20 @@ function frame(time){
     if(e==='whiff')sound('whiff');
     buzz(e);
     if(e==='serve'&&!lessonShown&&!teaching){say(game.level.lesson);lessonShown=true;}
-    if(e==='serve'&&!teaching&&!skillIntroShown){verdict('能量 50 放「旋转」改路线 · 满 100 放「爆发」','info');skillIntroShown=true;}
+    if(e==='serve'&&!teaching&&!skillIntroShown){verdict(`能量 ${skillCost(game,'spin')} 放「旋转」改路线 · 满 100 放「爆发」`,'info');skillIntroShown=true;}
     if(e==='energy50'||e==='energy100'){const el=$('energy');el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
     if(e==='energy100'&&!fullHintShown){say('能量满了：等球进框按「爆发」（K）打出强力回击，或先用「旋转」（J）。');fullHintShown=true;}
     if(e==='spin'){const f=hitFeel(game.weapon,'spin');sound(f.sound,f.intensity);sound('whirl');pop(game.ball.curve?.k>0?'右旋 ↻':'左旋 ↺');say('旋转球会沿弧线拐弯，撞到侧墙后变回直线。');}
     if(e==='burstStart'){sound('charge');$('feedback').textContent='蓄力爆发……';}
     if(e==='burstStrike')sound('strike');
     if(e==='burst'){const f=hitFeel(game.weapon,'burst');sound(f.sound,f.intensity);sound('impact');pop('爆发！');shake=Math.max(shake,.08);say('爆发球很快，但正对门将一样会被扑住。');}
-    if(e==='hit'){pop(aim[game.lastShot]||'好球！');if(!teaching)say('挥击时按住 ← 或 → 就往那边打，不按打直线。看红绿终点判断门将有没有封住。');}
-    if(e==='perfect'){pop('重炮！');shake=Math.max(shake,.06);}
+    if(e==='hit'){const bank=game.lastShot==='bank',lob=game.shot.zone==='top';pop(`${bank?(game.shot.angle>0?'借右墙 ↗':'借左墙 ↖'):aim[game.lastShot]||'好球！'} · ${lob?'高吊':'低平'}`);
+      if(!teaching)say(bank?'早出手按住方向：球高吊着借那侧的墙弹到另一边，门将要等撞墙才回头。进了算上区 ×3。':lob?'早出手是高吊球：慢一些，门将更容易追上，进了算上区 ×3。':'晚出手是低平快球：最难追，进了算下区 ×1。在橙色甜点正中出手打重炮，算中区 ×2。');}
+    if(e==='perfect'){pop(game.chain>1?`重炮！完美 ×${game.chain}`:'重炮！');shake=Math.max(shake,.06);}
+    if(['hit','perfect','soft','spin','burst'].includes(e)&&game.shot?.fire){pop('火球！');sound('impact');shake=Math.max(shake,.08);}
+    if(e==='chain3')verdict(`完美 ×${CHAIN.bonus} · +${CHAIN.bonusScore}`,'good');
+    if(e==='fireReady'){verdict(`完美 ×${CHAIN.fire}！下一球是火球`,'good');pop(`完美 ×${CHAIN.fire}！`);sound('charge');if(!teaching)say(`连续 ${CHAIN.fire} 次完美击球：下一次触球打出火球，只要飞进门框，门将就挡不住。`);}
+    if(e==='pierce'){sound('impact');shake=Math.max(shake,.1);}
     if(e==='soft'){pop('软球',true);say('挥早了：球自己撞上来，只能打出慢速直球。等框变亮再按。');}
     if(e==='whiff'){pop(whiffHint(game.whiff),true);say({early:'球还没到框里就挥了，等影子进框再按。',late:'球已经过了身位，下次早一点出手。',reach:'球在框外，先移到影子上再挥击。',none:'现在没有来球，等球飞回来。'}[game.whiff?.reason]||'这次没碰到球，看框亮起再出手。');}
     if(e==='tutorialStep'){verdict('好球！下一步','good');}
@@ -324,7 +387,8 @@ function frame(time){
     if(e==='save'){verdict(teaching?'门将挡住了 · 按住空的一侧再挥击':game.lastShot==='perfect'?'重炮被扑住 · 门将封住了这条线':'被扑住 · 门将封住了这条线','bad');shake=Math.max(shake,.03);if(!teaching)say('终点变红说明门将挡在那条线上。挥击时按住另一侧方向键，或用旋转绕开它。');}
     // The winning goal's camera shot plays out before the result card covers the court.
     if(e==='goal'&&game.phase==='won')resultAt=performance.now()+1000*(reduceMotion?.3:game.lastGoal?.key?GOAL_CAM.hold+GOAL_CAM.back:.6);
-    if(e==='goal'&&!teaching){verdict(game.lastShot==='perfect'?'重炮破门！':'进球！','good');shake=Math.max(shake,.1);say(game.phase==='won'?'漂亮，本关拿下！':`进球！还差 ${Math.max(0,game.level.goals-game.goals)} 球。`);}
+    if(e==='goal'&&!teaching){const g=game.lastGoal,banks=g?.banks||0,zone=ZONES[g?.zone],what=g?.fire?'火球破门':banks?`${banks>1?'两次':''}借墙破门`:game.lastShot==='perfect'?'重炮破门':'进球';
+      verdict(`${zone?`${ZONE_NAME[g.zone]} ×${zone.mult} · `:''}${what}！+${GOAL_SCORE[Math.min(banks,GOAL_SCORE.length-1)]*(zone?.mult??1)}`,'good');shake=Math.max(shake,.1);say(game.phase==='won'?'漂亮，本关拿下！':`进球！还差 ${Math.max(0,game.level.goals-game.goals)} 球。`);}
     if(e==='wide'){verdict('打偏了 · 球出了门框','bad');if(!teaching)say('这球偏出了门框，下一球换个方向。');}
     if(e==='practice'){verdict(`练习球 · 不扣机会（还剩 ${game.practiceLeft}）`,'info');say('看地上的影子，移动到亮框里再挥击。');trail=[];}
     if(['hit','perfect','goal'].includes(e)&&!reduceMotion&&!court3D){const p=project(game.ball.x,game.ball.z);for(let i=0;i<9;i++)particles.push({x:p.x,y:p.y-12,vx:Math.cos(i*2.4)*60,vy:Math.sin(i*2.4)*60,life:.35});}
@@ -338,7 +402,7 @@ function frame(time){
 ready();requestAnimationFrame(frame);
 // Everything is wired: lift the loading cover from index.html once the court can draw. The 3D court first loads its
 // two characters; if that fails the match continues on the 2D court.
-const booted=()=>{document.body.dataset.booted='1';};
+const booted=()=>{document.body.dataset.booted='1';players();};
 if(court3D)court3D.ready.then(booted,()=>{fallbackRenderer();$('feedback').textContent='已切换兼容画面，可以继续防守。';booted();});
 else booted();
 // Offline play and install: release builds ship sw.js; local development (localhost) never registers it.

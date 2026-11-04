@@ -32,3 +32,31 @@ export const CHARACTERS={
       punchRight:'Unarmed_Melee_Attack_Punch_A',punchLeft:'Unarmed_Melee_Attack_Punch_B'}
   }
 };
+
+// The figures a player may pick for the striker (single player only). Each entry overrides CHARACTERS.striker; all of
+// them share its rig, clips, height and gloves, so only the look changes. recolor turns each figure's own atlas into
+// the club's orange kit. hat: one prop hanging off the head that is kept (packed and drawn with the original atlas, so
+// it keeps its colours); every other prop is dropped as before. hatScale shrinks it about its head bone if needed.
+// style: how the figure plays (core.mjs STYLES), a small strength paired with a small cost.
+const ORANGE=l=>[18,.95,Math.min(.62,l*1.05+.08)];
+export const DEFAULT_PLAYER='rogue';
+export const PLAYERS=[
+  {id:'rogue',name:'游侠',style:'balanced',source:'Rogue.glb',file:'models/striker.glb'},
+  {id:'hooded',name:'兜帽侠',style:'agile',source:'Rogue_Hooded.glb',file:'models/player-hooded.glb'},
+  {id:'barbarian',name:'大胡子',style:'power',source:'Barbarian.glb',file:'models/player-barbarian.glb',hat:'Barbarian_Hat',
+    // The blue tunic and the grey-brown leather over the chest and arms become the kit; the white fur trim stays.
+    recolor:(h,s,l)=>h>195&&h<225&&s>.2&&l<.6?ORANGE(l*.8):h>=12&&h<40&&s<.2&&l>.22&&l<.48?ORANGE(l*.8):null},
+  {id:'knight',name:'骑士',style:'guard',source:'Knight.glb',file:'models/player-knight.glb',hat:'Knight_Helmet',
+    // Mid-grey plate becomes the kit; the darkest greys (joints, hips) and the eyes stay. The helmet stays full size:
+    // scaled down it sinks into the head. It hides a few far balls right behind the head (accepted, players.test.mjs).
+    recolor:(h,s,l)=>h>185&&h<225&&s<.22&&l>.38&&l<.78?ORANGE(l*.58):null},
+  {id:'mage',name:'法师',style:'skill',source:'Mage.glb',file:'models/player-mage.glb',hat:'Mage_Hat',hatScale:.65,
+    // The violet robe becomes the kit (the hat keeps its violet: it is drawn with the original atlas). At full size the
+    // brim covers the striker from the court camera and hides balls the head does not; at 0.65 it hides none.
+    recolor:(h,s,l)=>h>225&&h<275&&s>.12&&l>.15&&l<.6?ORANGE(l*.75):null}
+];
+// The striker's full spec for a player id; an unknown id gets the default figure.
+export function playerSpec(id){
+  const p=PLAYERS.find(e=>e.id===id)??PLAYERS.find(e=>e.id===DEFAULT_PLAYER);
+  return {...CHARACTERS.striker,...p};
+}

@@ -5,7 +5,7 @@ import {createGame,startGame,stepGame,attack,inHitRange,hitZone,swingPreview,pre
 function play(level=0,weapon='glove'){const s=createGame(level,weapon);startGame(s);stepGame(s,1,0);return s;}
 function incoming(s,x=0,z=4){const v=s.level.speed*s.rally;s.ball={x,z,vx:0,vz:-v,z0:z,z1:PLAYER_Z};s.player.x=x;s.hitstop=0;}
 const sweet=s=>PLAYER_Z+WEAPONS[s.weapon].reach*.5;
-// Swings so the window opens at timing t (power only), holding `axis` (the aim) once the swing is under way.
+// Swings so the window opens at timing t (power and height only), holding `axis` (the aim) once the swing is under way.
 function swingT(s,t,axis=0){const w=WEAPONS[s.weapon],z=sweet(s)+t*w.reach*.5;for(let i=0;i<2000&&s.ball.z>z+Math.abs(s.ball.vz)*w.windup;i++)stepGame(s,1/120,0);attack(s);for(let i=0;i<30&&s.ball.vz<0;i++)stepGame(s,1/120,axis);}
 function resolve(s){const g=s.goals;for(let i=0;i<1200;i++){stepGame(s,1/120,0);if(s.goals>g)return 'goal';if(s.ball.vz<0)return s.keeper.dive>0?'save':'wide';}return 'none';}
 // What actually happens if the player presses swing right now and then lets the frames run.

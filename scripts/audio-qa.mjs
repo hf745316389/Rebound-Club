@@ -1,9 +1,7 @@
 // Phone audio QA (node scripts/audio-qa.mjs, needs the local server on :4173). Mobile Chrome with a strict autoplay policy;
 // navigator.audioSession and media play() are stubbed/recorded in the test browser only, game state is not touched.
-import {createRequire} from 'node:module';import assert from 'node:assert/strict';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
-const b=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true,args:['--autoplay-policy=document-user-activation-required']});
+import {chromium,CHROME} from './qa-env.mjs';import assert from 'node:assert/strict';
+const b=await chromium.launch({executablePath:CHROME,headless:true,args:['--autoplay-policy=document-user-activation-required']});
 const ctx=await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const p=await ctx.newPage();const errors=[];p.on('pageerror',e=>errors.push(e.message));
 await p.addInitScript(()=>{localStorage.setItem('rebound-club-v2',JSON.stringify({unlocked:5,scores:{0:2200},perfect:{},tutorialDone:true}));
   window.__session={type:'auto'};Object.defineProperty(navigator,'audioSession',{value:window.__session});

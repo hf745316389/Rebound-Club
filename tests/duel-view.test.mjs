@@ -35,6 +35,11 @@ test('对战画面：近端球门与远端同宽', ()=>{
   const single=new THREE.Box3().setFromObject(buildWorld(assets).nearGoal);assert.ok(single.max.x>3.9,'单机近端球门不变');
 });
 
+test('对战画面：球门不画单机的上中下三区和倍数牌（对战没有三区）', ()=>{
+  const bands=w=>{let n=0;w.farGoal.traverse(o=>{if(o.userData.zoneBand)n++;});return n;};
+  assert.ok(bands(buildWorld(assets))>0,'单机画三区');assert.equal(bands(buildWorld(assets,{duel:true})),0);
+});
+
 const draws=w=>{let main=0,casters=0;w.scene.traverseVisible(o=>{if(o.isMesh||o.isLine||o.isPoints){main++;if(o.isMesh&&o.castShadow)casters++;}});return {main,casters};};
 test('对战连续渲染 300 帧（有击中、进球）：不新建物体、几何体、材质', ()=>{
   const w=buildWorld(assets,{duel:true});w.resize(.46);const s=createDuel(),bots={a:createBot({seed:3}),b:createBot({seed:4})};startDuel(s);

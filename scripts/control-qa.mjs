@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
+import {chromium,CHROME} from './qa-env.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
-const require=createRequire('C:/Users/HUFAN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/qa.cjs');
-const {chromium}=require('playwright');
-const browser=await chromium.launch({executablePath:'C:/Users/HUFAN/AppData/Local/Google/Chrome/Application/chrome.exe',headless:true});
+const browser=await chromium.launch({executablePath:CHROME,headless:true});
 const results=[],errors=[];
 await mkdir('artifacts/controls',{recursive:true});
 try{
