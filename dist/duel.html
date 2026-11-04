@@ -27,6 +27,8 @@
       <div class="court-badge"><span class="live-dot"></span><span id="court-status">热身准备</span></div>
       <div class="result-pop" id="result-pop" aria-live="polite"></div>
       <div class="hit-pop" id="hit-pop" aria-live="polite"></div>
+      <div class="combo" id="combo"><b id="combo-n">0</b><span>连击</span><em class="chain" id="chain"></em><small id="combo-mult">×1.0</small></div>
+      <div class="foe-streak" id="foe-streak"></div>
       <div class="overlay" id="overlay" hidden><div class="overlay-content" id="overlay-content"></div></div>
     </div>
     <div class="controls"><div class="move-control" id="move-control" role="group" aria-label="左右移动" aria-describedby="move-hint"><div class="move-buttons"><button type="button" class="move-button" id="move-left" aria-label="向左移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M26 16H6m9-9-9 9 9 9"/></svg></button><button type="button" class="move-button" id="move-right" aria-label="向右移动" aria-pressed="false" disabled><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16h20m-9-9 9 9-9 9"/></svg></button></div><small id="move-hint">按住移动 · 挥击时定方向</small></div><div class="attack-wrap"><span class="attack-hint" id="attack-hint">看准再出手</span><div class="skill-dock" id="skill-dock"><div class="energy" id="energy" role="meter" aria-label="能量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><i id="energy-fill"></i><b class="energy-tick" aria-hidden="true"></b><span id="energy-value">50</span></div><div class="skill-buttons"><button class="skill-button spin" id="skill-spin" aria-label="旋转回击，消耗50能量"><b>旋转<em id="spin-dir"></em></b><small id="spin-key">50 · J</small><span class="skill-state" id="spin-state">待开球</span></button><button class="skill-button burst" id="skill-burst" aria-label="爆发回击，消耗100能量"><b>爆发</b><small id="burst-key">100 · K</small><span class="skill-state" id="burst-state">待开球</span></button></div></div><button id="attack" class="attack-button" aria-label="挥击" disabled><svg viewBox="0 0 48 44" aria-hidden="true"><path d="M13 28c-8-2-9-12-4-15 2-1 5 0 7 3V9c0-4 6-4 6 0V6c0-4 6-4 6 0v2c0-4 6-4 6 0v3c1-4 7-3 7 1v10c0 6-5 10-11 10H17zM17 32v5h14v-5"/></svg><span>挥击</span><small id="attack-key">SPACE</small></button></div><div class="watch-bar" id="watch-bar" hidden><button type="button" class="watch-button" data-action="swap-view">换个方向看</button><button type="button" class="watch-button" data-action="setup">返回房间</button></div></div>
@@ -37,6 +39,11 @@
       <button type="button" class="duel-choice" data-mode="ai" role="radio" aria-checked="true">对战 AI</button>
       <button type="button" class="duel-choice" data-mode="online" role="radio" aria-checked="false">好友联机</button>
       <button type="button" class="duel-choice" data-mode="local" role="radio" aria-checked="false" id="mode-local">本机双人</button></div>
+    <!-- data-bot: the AI's level (duel-bot.mjs BOT_LEVELS). -->
+    <div class="duel-group" role="radiogroup" aria-label="AI 难度" id="bot-group"><span class="duel-label">AI 难度</span>
+      <button type="button" class="duel-choice" data-bot="easy" role="radio" aria-checked="false">简单</button>
+      <button type="button" class="duel-choice" data-bot="normal" role="radio" aria-checked="true">普通</button>
+      <button type="button" class="duel-choice" data-bot="hard" role="radio" aria-checked="false">困难</button></div>
     <!-- Online play (duel-link.mjs): open a room, or join one by its code; an invite link (?room=<id>) joins at once. Up to
          8 in a room: two on the court, the rest queued or watching. -->
     <div class="duel-group" id="online-group" hidden><span class="duel-label">好友联机</span>

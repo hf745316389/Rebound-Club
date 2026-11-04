@@ -16,6 +16,7 @@ import {createInput} from './input.mjs';
 import {create3DRenderer} from './scene3d.mjs';
 import {sound,buzz,setSound} from './sfx.mjs';
 import {icon,hitFeel,whiffHint,SKILL_STATE} from './ui.mjs';
+import {COMBO,comboMult} from './combo.mjs';
 
 const $=id=>document.getElementById(id);
 const coarse=matchMedia('(pointer:coarse)').matches,reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -30,6 +31,8 @@ function goFullscreen(){const d=document.documentElement;if(coarse&&document.ful
 const input=createInput(),keysB=new Set();
 // latency: each message's one-way delay (ms); the buttons show the round trip, as a game's ping does.
 let mode='ai',latency=0,sync='catchup',soundOn=true,match=null,room=null,uiPhase='',lastTime=0,shake=0,court=null;
+// The bot's level against the AI (duel-bot.mjs BOT_LEVELS); this match's combo numbers (see logEvent).
+let botLevel='normal',log=null;
 const idle=createDuel();
 // The side this page's player plays: A against the bot and on one keyboard, the side the room gives it online.
 // Watching, both sides are shown with their names, as on one keyboard, from the side being watched from.
@@ -47,7 +50,7 @@ function newMatch(){
     const now=()=>performance.now()/1000,seed=(Math.random()*2**31)>>>0,loop=createLoopback({delayMs:latency,jitterMs:latency*.2,seed,now});
     const used=sync==='blind'?(Math.random()<.5?'catchup':'fullflight'):sync;
     const a=createClient({side:'a',transport:loop[0],now,sync:used}),b=createClient({side:'b',transport:loop[1],now,sync:used});
-    match={mode,sync:used,blind:sync==='blind',loop,a,b,bot:createBot({seed:seed+1}),state:a.state,pending:{a:{swing:false,skill:null}}};a.start();b.start();
+    match={mode,sync:used,blind:sync==='blind',loop,a,b,bot:createBot({seed:seed+1,level:botLevel}),state:a.state,pending:{a:{swing:false,skill:null}}};a.start();b.start();
   }else{const s=createDuel();match={mode,state:s,pending:{a:{swing:false,skill:null},b:{swing:false,skill:null}}};startDuel(s);}
   sound('start');
 }
@@ -115,11 +118,49 @@ function events(){
       const [l,r]=both?['a','b']:[my,foe()];say(`${n[l]} ${s.score[l]} : ${s.score[r]} ${n[r]} · 先进 ${DUEL.goals} 球获胜`);
     }
     if(e.type==='win')sound(both||mine?'win':'miss');
+    // Combo sweet spot (combo.mjs): milestones, the sweet state, fireballs and a streak's end.
+    logEvent(e);const tag=both?`${who} · `:'';
+    if(e.type==='milestone'&&shown)verdict(`${tag}${e.n} 连！`,'good');
+    if(e.type==='milestone'&&!shown&&e.n>=10)say(`${who}已经 ${e.n} 连，打过去的球更快，它的甜点带也更窄。`);
+    if(e.type==='sweetStart'&&shown){pop(`${tag}甜点状态！`);if(mine)say(`连续 ${COMBO.sweetNeed} 次完美：接下来 ${COMBO.sweetBalls} 次触球倍率 +${COMBO.sweetMult}，甜点带变宽。`);}
+    if(e.type==='fireReady'&&shown){verdict(`${tag}完美 ×${COMBO.fireNeed}！下一击是火球`,'good');sound('charge');}
+    if(e.type==='fireShot'){pop(`${mine&&!both?'':`${who} · `}火球！`);sound('impact');shake=Math.max(shake,.08);}
+    if(e.type==='breakFire'){verdict(`${who}破火！`,'good');sound('impact');}
+    if(e.type==='comboBreak'&&shown&&e.n>=COMBO.milestoneEvery)say(`${tag}${e.n} 连中断 · 下 ${COMBO.recoverBalls} 球甜点带和接球框放宽`);
     if((e.type==='energy50'||e.type==='energy100')&&mine){const el=$('energy');el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
   }
   s.events=[];
 }
 
+// --- Combo sweet spot: this match's numbers per side, and the last 50 matches kept on this device -----------------
+const CAUSE={early:'出手太早',late:'出手太晚',reach:'没跑到位',idle:'没有出手',unclear:'挥空'},STATS='rebound-duel-stats-v1';
+// Per side, from the match's events: streaks as they ended and why, contacts and perfects, sweet states, fireballs
+// struck and broken. A new match (any mode) starts a new log.
+function newLog(m){const one=()=>({ends:[],causes:{},contacts:0,perfects:0,sweets:0,fires:0,broken:0});return {match:m,a:one(),b:one(),kept:false};}
+function logEvent(e){
+  if(log?.match!==match)log=newLog(match);const o=log[e.side];if(!o)return;
+  if(['hit','perfect','soft','spin','burst'].includes(e.type))o.contacts++;if(e.type==='perfect')o.perfects++;
+  if(e.type==='sweetStart')o.sweets++;if(e.type==='fireShot')o.fires++;if(e.type==='breakFire')o.broken++;
+  if(e.type==='comboBreak'){o.ends.push(e.n);o.causes[e.cause]=(o.causes[e.cause]||0)+1;}
+}
+// One side's match in numbers; the streak still running counts toward the mean.
+function summary(s,side){
+  const o=log?.match===match?log[side]:newLog(match)[side],st=s.players[side].streak,ends=[...o.ends,st.n].filter(n=>n>0);
+  return {best:st.best,avg:ends.length?ends.reduce((a,b)=>a+b,0)/ends.length:0,perfectRate:o.contacts?o.perfects/o.contacts:0,sweets:o.sweets,fires:o.fires,broken:o.broken,causes:o.causes,points:st.points};
+}
+// Kept on this device only, for tuning combo.mjs later: the last 50 matches played here (not watched).
+function keepStats(s){
+  if(!log||log.kept||log.match!==match||watching())return;log.kept=true;const mine=mode==='local'?'a':me(),theirs=mine==='a'?'b':'a';
+  try{const all=JSON.parse(localStorage.getItem(STATS)||'[]');all.push({at:Date.now(),mode,bot:mode==='ai'?botLevel:null,won:s.winner===mine,score:{...s.score},me:summary(s,mine),foe:summary(s,theirs)});
+    localStorage.setItem(STATS,JSON.stringify(all.slice(-50)));}catch{/* storage is optional */}
+}
+function comboLines(s,n,l,r){
+  const a=summary(s,l),b=summary(s,r),causes=Object.entries(a.causes).map(([k,v])=>`${CAUSE[k]||k} ${v}`).join(' · ');
+  return `<div class='result-points'>积分 ${esc(n[l])} ${a.points.toLocaleString()} : ${b.points.toLocaleString()} ${esc(n[r])}</div>`+
+    `<details class='result-data'><summary>${esc(n[l])}的本局数据</summary><p>最高连击 ${a.best} · 平均连击 ${a.avg.toFixed(1)} · 完美率 ${Math.round(a.perfectRate*100)}%</p>`+
+    `<p>甜点状态 ${a.sweets} 次 · 火球 ${a.fires} 次 · 破火 ${a.broken} 次</p>${causes?`<p>断连：${causes}</p>`:''}</details>`;
+}
+const setText=(el,v)=>{if(el.textContent!==v)el.textContent=v;};
 function overlay(html){$('overlay-content').innerHTML=html;$('overlay').hidden=false;}
 function screenFor(phase){if(watching())return phase==='won'?'result':phase==='paused'?'paused':'match';return phase==='ready'?'ready':phase==='paused'?'paused':phase==='won'?'result':'match';}
 function phaseUI(){
@@ -134,10 +175,10 @@ function phaseUI(){
   else if(phase==='won'){
     const n=names(),win=s.winner,both=shared(),lost=!both&&win!==me(),title=both?`${n[win]}获胜`:lost?'对手赢了':'你赢了',[l,r]=both?['a','b']:[me(),foe()];
     const syncLine=mode==='local'||watching()?'':`<div class='result-subtitle' id='result-sync'>${match.blind?'盲测揭晓：这局用的是':'同步方式：'}「${SYNC_NAMES[match.sync]}」${mode==='ai'?` · 往返 ${latency*2} 毫秒`:''}</div>`;
-    const next=mode==='online'?nextInRoom():null;
+    const next=mode==='online'?nextInRoom():null;keepStats(s);
     const go=next?next.button:`<button class='primary-button' data-action='retry'>再来一局 ${icon('retry')}</button>`;
     const links=mode==='online'?`${next?.back??''}<button class='secondary-button' data-action='leave'>离开房间</button>`:`<button class='secondary-button' data-action='setup'>返回设置</button><a class='secondary-button' href='./index.html'>返回单机</a>`;
-    overlay(`<div class='overlay-symbol ${lost?'loss':''}'>${icon(lost?'retry':'trophy')}</div><span class='eyebrow'>双人对战 · 先进 ${DUEL.goals} 球</span><h3>${esc(title)}</h3><div class='result-score'>${s.score[l]}<small> : ${s.score[r]}</small></div><div class='result-subtitle'>${esc(n[l])} ${s.score[l]} : ${s.score[r]} ${esc(n[r])}</div>${syncLine}${next?.line??''}${go}<div class='result-links'>${links}</div>`);
+    overlay(`<div class='overlay-symbol ${lost?'loss':''}'>${icon(lost?'retry':'trophy')}</div><span class='eyebrow'>双人对战 · 先进 ${DUEL.goals} 球</span><h3>${esc(title)}</h3><div class='result-score'>${s.score[l]}<small> : ${s.score[r]}</small></div><div class='result-subtitle'>${esc(n[l])} ${s.score[l]} : ${s.score[r]} ${esc(n[r])}</div>${comboLines(s,n,l,r)}${syncLine}${next?.line??''}${go}<div class='result-links'>${links}</div>`);
     input.reset();keysB.clear();
   }else $('overlay').hidden=true;
   if(previous!==screen)queueMicrotask(()=>{if(screen==='paused'||screen==='result')$('overlay-content').querySelector('.primary-button')?.focus({preventScroll:true});else if(screen==='match')$('court').focus({preventScroll:true});});
@@ -145,11 +186,12 @@ function phaseUI(){
 function setupUI(){
   for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-checked',String(b.dataset.mode===mode));
   for(const b of document.querySelectorAll('[data-latency]'))b.setAttribute('aria-checked',String(Number(b.dataset.latency)===latency));
+  for(const b of document.querySelectorAll('[data-bot]'))b.setAttribute('aria-checked',String(b.dataset.bot===botLevel));
   // Online, the room's owner chooses how matches sync and who leaves the court after one; the others see the choice.
   const rules=mode==='online'?room?.snap?.rules:null;
   for(const b of document.querySelectorAll('[data-sync]'))b.setAttribute('aria-checked',String(b.dataset.sync===(rules?.sync??sync)));
   for(const b of document.querySelectorAll('[data-rotation]'))b.setAttribute('aria-checked',String(b.dataset.rotation===rules?.rotation));
-  $('mode-local').hidden=coarse;$('latency-group').hidden=mode!=='ai';$('online-group').hidden=mode!=='online';
+  $('mode-local').hidden=coarse;$('latency-group').hidden=mode!=='ai';$('bot-group').hidden=mode!=='ai';$('online-group').hidden=mode!=='online';
   $('sync-group').hidden=!(mode==='ai'||mode==='online'&&isOwner());$('rotation-group').hidden=!(mode==='online'&&isOwner());
   $('duel-keys').innerHTML=mode==='online'?`${coarse?'按住左右箭头移动，点挥击回球；能量够时可放旋转、爆发。':'移动 <b>A / D</b> 或 <b>← / →</b> · 挥击 <b>空格</b> · 旋转 <b>J</b> · 爆发 <b>K</b> · 暂停 <b>Esc</b>'}<br>好友联机：一人创建房间，把房间码或邀请链接发给朋友，最多 8 人。场上两人对打，两人都点「准备」就开局；其他人排队等上场，或者观战。暂停时场上两人一起停。`
     :coarse?'按住左右箭头移动，点挥击回球；能量够时可放旋转、爆发。':mode==='ai'
@@ -171,6 +213,15 @@ function hud(){
   const by=s.lastGoal?.by,goalWord=!both?(by===my?'进球！':'丢球，稳住'):`${n[by]||''}进球！`;
   const status={ready:watching()?'等下一次发球':'热身准备',serving:'发球准备',playing:'对决进行中',goal:goalWord,skill:'爆发蓄力',paused:'已暂停',won:'对战结束'};
   $('court-status').textContent=s.phase==='serving'?`发球倒数 ${Math.max(1,Math.ceil(s.countdown*2))}`:s.phase==='playing'&&s.rally>1.001?`对决进行中 · 球速 ×${s.rally.toFixed(2)}`:status[s.phase]||'';
+  // Combo sweet spot (combo.mjs): this player's streak, multiplier and points, then its perfects toward a fireball or
+  // the state it is in; the other player's streak once it reaches a milestone.
+  const st=self.streak,other=my==='a'?'b':'a',fs=s.players[other].streak,live=DUEL_ACTIVE.includes(s.phase)||s.phase==='paused';
+  $('combo').style.opacity=live&&(st.n>0||st.fire||st.recoverLeft>0)?'1':'0';
+  setText($('combo-n'),String(st.n));setText($('combo-mult'),`×${comboMult(st).toFixed(1)} · ${st.points.toLocaleString()} 分`);
+  const chain=st.fire?['fire','火球就绪']:st.sweetLeft>0?['sweet',`甜点 ×${st.sweetLeft}`]:st.recoverLeft>0?['recover',`恢复 ${st.recoverLeft}`]
+    :['',Array.from({length:COMBO.fireNeed},(_,i)=>`<i class='${i<st.perfects?'on':''}'></i>`).join('')],ch=$('chain');
+  if(ch.dataset.k!==chain.join('|')){ch.dataset.k=chain.join('|');ch.className=`chain ${chain[0]}`;ch.innerHTML=chain[1];}
+  setText($('foe-streak'),live&&fs.n>=COMBO.milestoneEvery?`${n[other]} ${fs.n} 连 · ×${comboMult(fs).toFixed(1)}`:'');
   $('energy-fill').style.width=`${self.energy}%`;$('energy-value').textContent=self.energy;$('energy').setAttribute('aria-valuenow',self.energy);
   // A full bar keeps the burst button lit with its flame (styles.css .charged) until it is spent, as in the club.
   const charged=self.energy>=SKILLS.burst.cost;$('skill-burst').classList.toggle('charged',charged);$('energy').classList.toggle('charged',charged);
@@ -202,7 +253,8 @@ try{
 }catch{unsupported();}
 
 document.querySelector('.app').addEventListener('click',e=>{
-  const el=e.target.closest('[data-action],[data-mode],[data-latency],[data-sync],[data-rotation]');if(!el)return;
+  const el=e.target.closest('[data-action],[data-mode],[data-latency],[data-bot],[data-sync],[data-rotation]');if(!el)return;
+  if(el.dataset.bot&&!match){botLevel=el.dataset.bot;setupUI();return;}
   if(el.dataset.mode&&!match){if(el.dataset.mode!=='online')leaveRoom();mode=el.dataset.mode;setupUI();return;}
   if(el.dataset.latency!==undefined&&!match){latency=Number(el.dataset.latency);setupUI();return;}
   if(el.dataset.sync&&!match){if(mode==='online'){if(isOwner())room.link.command({type:'rules',sync:el.dataset.sync});return;}sync=el.dataset.sync;setupUI();return;}

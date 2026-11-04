@@ -53,3 +53,18 @@ body[data-screen=result] .watch-bar{display:none}
   body[data-screen=ready] .duel-choice{height:36px;font-size:12px}
   body[data-screen=ready] .duel-keys{font-size:11px}
 }
+/* Combo sweet spot (combo.mjs): this player's streak with its multiplier and points, and a row for perfects toward a
+   fireball or the state it is in; the other player's streak in one line under it. */
+.combo .chain{display:flex;justify-content:center;gap:3px;margin-top:4px;font-size:9px;font-style:normal;font-weight:800;letter-spacing:1px;white-space:nowrap}
+.combo .chain i{width:6px;height:6px;border-radius:50%;border:1px solid currentColor;opacity:.55}.combo .chain i.on{background:currentColor;opacity:1}
+.combo .chain.fire{color:#ff6a2b}.combo .chain.sweet{color:#ffd84d}.combo .chain.recover{color:#5fd6c8}
+.combo small{display:block;margin-top:3px;font-size:10px;font-weight:800;letter-spacing:.3px;white-space:nowrap}
+.foe-streak{position:absolute;right:18px;top:96px;pointer-events:none;font-size:10px;font-weight:700;color:#ff9a7a;text-shadow:0 1px 0 #0d1022;white-space:nowrap}
+.foe-streak:empty{display:none}
+.result-points{margin:-6px 0 10px;font-size:13px;font-weight:800;color:var(--gold,#ffd84d)}
+.result-data{margin:0 0 14px;font-size:11px;color:var(--muted,#9aa6c8);text-align:center}.result-data summary{cursor:pointer;font-weight:700}.result-data p{margin:4px 0 0}
+/* In the match the top-right corner belongs to the sound button and the status badge: the streak sits under the badge
+   (beside it in portrait, where the badge is centred) and the other side's line under the streak. */
+body:is([data-screen=match],[data-screen=paused]) .combo{top:calc(var(--top) + 48px);right:var(--edge-r)}
+body:is([data-screen=match],[data-screen=paused]) .foe-streak{top:calc(var(--top) + 132px);right:var(--edge-r)}
+@media(min-aspect-ratio:1/1){body:is([data-screen=match],[data-screen=paused]) .combo{top:calc(var(--top) + 86px)}body:is([data-screen=match],[data-screen=paused]) .foe-streak{top:calc(var(--top) + 170px)}}

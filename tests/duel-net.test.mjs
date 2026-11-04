@@ -65,7 +65,8 @@ test('两台设备的时钟不一样（乙方快 5 秒、慢 5 秒、快 30 秒�
 // every 0.2 s as the link's feed does (B's offset only once it has one) and reach a watcher, whose clock is `wskew` off
 // A's, after a room trip of `room` s give or take 30 ms; from `joinAfter` goals on. Every step while both are playing,
 // the watcher's ball is compared with the ball of the copy that decided its flight (B's when it flies at A), at the
-// same moment of A's clock.
+// same moment of A's clock. A sample is how far that is beyond the step a ball covers at its speed (1/120 s, with 5% to
+// spare, and never under 0.15 m): the replay may sit one step off, so a fast ball (a streak's pace, combo.mjs) is further.
 const FEED=['pos','serve','hit','wide','goal','burstStart'],seeded=seed=>{let a=seed;return()=>{a=a*16807%2147483647;return a/2147483647;};};
 function watched({seed=1,delayMs=60,skew=5,wskew=-3,room=.12,joinAfter=0,cap=120*400}={}){
   let T=0;const loop=createLoopback({delayMs,jitterMs:delayMs*.2,seed,now:()=>T}),out={a:[],b:[]},jitter=seeded(seed+9);
@@ -86,24 +87,24 @@ function watched({seed=1,delayMs=60,skew=5,wskew=-3,room=.12,joinAfter=0,cap=120
     for(let i=inflight.length-1;i>=0;i--)if(inflight[i].at<=T){const {pack,at}=inflight.splice(i,1)[0];w.push({...pack,at:at+wskew});}
     w.step();goalsSeen+=w.state.events.filter(e=>e.type==='goal').length;
     if(w.live&&w.state.phase==='playing'){const s=w.state,src=past[s.ball.vz<0?'b':'a'],h=src[Math.round(w.time/DT)-1];
-      if(h?.phase==='playing')errs.push(Math.hypot(h.x-s.ball.x,h.z-s.ball.z));}
+      if(h?.phase==='playing')errs.push(Math.hypot(h.x-s.ball.x,h.z-s.ball.z)-Math.max(.15,Math.hypot(s.ball.vx,s.ball.vz)*DT*1.05));}
     if(c.a.state.phase==='won'&&c.b.state.phase==='won'&&w.state.phase==='won')break;
   }
   return {c,w,errs,goalsSeen,liveAtJoin};
 }
 
-test('观战：两个机器人打完一局，观众隔 1 秒回放；乙方时钟快 5 秒、观众时钟慢 3 秒，比分、胜者一致，球和判定方的对局相差不超过 0.15 米', ()=>{
+test('观战：两个机器人打完一局，观众隔 1 秒回放；乙方时钟快 5 秒、观众时钟慢 3 秒，比分、胜者一致，球和判定方的对局相差不超过一步的距离', ()=>{
   for(const opts of [{seed:1},{seed:2,delayMs:150},{seed:3,room:.3},{seed:4,skew:-30,wskew:12}]){
     const {c,w,errs,goalsSeen}=watched(opts),what=JSON.stringify(opts);
     assert.equal(w.state.phase,'won',what);assert.deepEqual(w.state.score,c.a.state.score,what);assert.equal(w.state.winner,c.a.state.winner,what);
     assert.equal(goalsSeen,c.a.state.score.a+c.a.state.score.b,`${what}：每个进球观众端出现一次`);
-    assert.ok(errs.length>3000,`${what}：只比对了 ${errs.length} 次`);assert.ok(Math.max(...errs)<=.15,`${what}：最大偏差 ${Math.max(...errs).toFixed(3)} 米`);
+    assert.ok(errs.length>3000,`${what}：只比对了 ${errs.length} 次`);assert.ok(Math.max(...errs)<=0,`${what}：超出一步 ${Math.max(...errs).toFixed(3)} 米`);
   }
 });
 
 test('观战：中途进来，先显示给定的比分，等下一次发球才放画面；最后比分一致', ()=>{
   const {c,w,errs,liveAtJoin}=watched({seed:5,joinAfter:2});
-  assert.equal(liveAtJoin,false);assert.deepEqual(w.state.score,c.a.state.score);assert.ok(errs.length>1000);assert.ok(Math.max(...errs)<=.15);
+  assert.equal(liveAtJoin,false);assert.deepEqual(w.state.score,c.a.state.score);assert.ok(errs.length>1000);assert.ok(Math.max(...errs)<=0);
   // Given the room's score, it shows it until play reaches it; a rally's messages before a serve are not played.
   let T=0;const late=createWatcher({now:()=>T,score:{a:2,b:1}});
   late.push({side:'a',msgs:[{type:'hit',t:0,side:'a',event:'hit',ball:{x:0,z:3,vx:0,vz:5,curve:null},rally:1,energy:50,power:false,shot:{side:'a',kind:'hit'},stop:0}],at:0});

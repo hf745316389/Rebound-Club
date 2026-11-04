@@ -3,14 +3,15 @@
 // (scene3d.mjs) draws it as it draws a match, plus `opponent` and `mode:'duel'`; its rule-based hints come from `hints`.
 // The view object for a (duel, side) pair is kept and refreshed in place, since the scene keys its effects on identity.
 import {PLAYER_Z,hitZone,burstZone,spinPreview,predictFlight} from './core.mjs';
-import {DUEL,COURT,other,localBall,localX,duelSwingPreview,duelSkillStatus} from './duel-core.mjs';
+import {DUEL,COURT,other,localBall,localX,duelSwingPreview,duelSkillStatus,duelHitZone,duelBurstZone} from './duel-core.mjs';
 
 const LEVEL={name:'对战',goals:DUEL.goals,goalHalf:DUEL.goalHalf,speed:DUEL.speed,color:DUEL.color};
 const views=new WeakMap();
 function makeView(s,side){
   const v={mode:'duel',side,weapon:'glove',levelIndex:0,level:LEVEL,tutorial:null,practiceLeft:0,ball:{},player:{x:0,z:PLAYER_Z},
     keeper:{x:0,target:0,dive:0,diveDir:0},opponent:{x:0,swing:null,axis:0,burst:null},pose:null,poseBox:{px:0,kx:0,bx:0,bz:0},shot:null,lastGoal:null,cache:{shot:null,goal:null}};
-  v.hints={hitZone,burstZone,spinPreview,predictFlight,swingPreview:(view,axis)=>duelSwingPreview(s,side,axis),skillStatus:(view,kind)=>duelSkillStatus(s,side,kind),goalLock:()=>null};
+  // The boxes come from the duel's rules, so a streak's narrower or wider band (combo.mjs) is what the court shows.
+  v.hints={hitZone:()=>duelHitZone(s,side),burstZone:()=>duelBurstZone(s,side),spinPreview,predictFlight,swingPreview:(view,axis)=>duelSwingPreview(s,side,axis),skillStatus:(view,kind)=>duelSkillStatus(s,side,kind),goalLock:()=>null};
   return v;
 }
 function phaseFor(s,side){
@@ -27,7 +28,7 @@ export function viewFor(s,side,offset=null){
   v.swing=me.swing;v.energy=me.energy;v.whiff=me.whiff;v.lastShot=me.lastShot;v.held=me.held;
   // The other player's burst charge, on the same clock: the scene plays it at the far end (scene3d foe burst).
   v.skill=s.skill?.side===side?s.skill:null;v.opponent.burst=s.skill&&s.skill.side!==side?s.skill:null;v.phase=phaseFor(s,side);v.countdown=s.countdown;
-  v.goals=s.score[side];v.misses=s.score[other(side)];v.score=v.goals;v.combo=0;
+  v.goals=s.score[side];v.misses=s.score[other(side)];v.score=v.goals;v.combo=me.streak.n;v.streak=me.streak;v.foeStreak=op.streak;
   v.power=s.power;v.flash=s.flash;v.hitstop=s.hitstop;v.elapsed=s.elapsed;v.rally=s.rally;v.accumulator=s.accumulator;
   // A shot or goal by the other player is turned into this view once, so its identity holds while it is current.
   if(v.cache.shot!==s.shot){v.cache.shot=s.shot;const t=s.shot;
