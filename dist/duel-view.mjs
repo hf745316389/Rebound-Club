@@ -9,7 +9,7 @@ const LEVEL={name:'对战',goals:DUEL.goals,goalHalf:DUEL.goalHalf,speed:DUEL.sp
 const views=new WeakMap();
 function makeView(s,side){
   const v={mode:'duel',side,weapon:'glove',levelIndex:0,level:LEVEL,tutorial:null,practiceLeft:0,ball:{},player:{x:0,z:PLAYER_Z},
-    keeper:{x:0,target:0,dive:0,diveDir:0},opponent:{x:0,swing:null,axis:0,burst:null},pose:null,poseBox:{px:0,kx:0,bx:0,bz:0},shot:null,lastGoal:null,cache:{shot:null,goal:null}};
+    keeper:{x:0,target:0,dive:0,diveDir:0},opponent:{x:0,swing:null,axis:0,burst:null,figure:null,style:null},pose:null,poseBox:{px:0,kx:0,bx:0,bz:0},shot:null,lastGoal:null,cache:{shot:null,goal:null}};
   // The boxes come from the duel's rules, so a streak's narrower or wider band (combo.mjs) is what the court shows.
   v.hints={hitZone:()=>duelHitZone(s,side),burstZone:()=>duelBurstZone(s,side),spinPreview,predictFlight,swingPreview:(view,axis)=>duelSwingPreview(s,side,axis),skillStatus:(view,kind)=>duelSkillStatus(s,side,kind),goalLock:()=>null};
   return v;
@@ -25,6 +25,8 @@ export function viewFor(s,side,offset=null){
   const v=pair[side]??=makeView(s,side),me=s.players[side],op=s.players[other(side)],flip=side==='b';
   localBall(s,side,v.ball);const ox=offset?.x||0,oz=offset?.z||0;v.ball.x+=ox;v.ball.z+=oz;
   v.player.x=localX(side,me.x);v.keeper.x=v.keeper.target=v.opponent.x=localX(side,op.x);v.opponent.swing=op.swing;v.opponent.axis=op.held;
+  // Both figures and styles (duel-core duelFigure): the scene draws each as its figure and times its punch by its style.
+  v.figure=me.figure;v.style=me.style;v.opponent.figure=op.figure;v.opponent.style=op.style;
   v.swing=me.swing;v.energy=me.energy;v.whiff=me.whiff;v.lastShot=me.lastShot;v.held=me.held;
   // The other player's burst charge, on the same clock: the scene plays it at the far end (scene3d foe burst).
   v.skill=s.skill?.side===side?s.skill:null;v.opponent.burst=s.skill&&s.skill.side!==side?s.skill:null;v.phase=phaseFor(s,side);v.countdown=s.countdown;

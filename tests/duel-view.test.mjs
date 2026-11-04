@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../dist/vendor/three.module.min.js';
 import {buildWorld,DUEL_FAR_GLOVE} from '../dist/scene3d.mjs';
+import {playerSpec,rivalSpec} from '../dist/characters.mjs';
 import {loadCharacters} from './helpers/characters.mjs';
 import {WEAPONS,PLAYER_Z} from '../dist/core.mjs';
-import {createDuel,startDuel,stepDuel,duelAttack,duelSkill,mirrorBall,OPP_Z,DUEL,SIDES} from '../dist/duel-core.mjs';
+import {createDuel,startDuel,stepDuel,duelAttack,duelSkill,mirrorBall,OPP_Z,DUEL,SIDES,COURT as COURT_GOAL} from '../dist/duel-core.mjs';
 import {viewFor} from '../dist/duel-view.mjs';
 import {createBot} from '../dist/duel-bot.mjs';
 const assets=await loadCharacters();
@@ -57,10 +58,11 @@ test('对战连续渲染 300 帧（有击中、进球）：不新建物体、几
 });
 
 // Measured at the moments perf.test.mjs measures the single-player court (lobby, just after the serve), same limits.
-test('对战绘制数：准备状态与发球后，可见物体 ≤100、投影物体 ≤50（与 perf.test 的统计时机和阈值相同）', ()=>{
-  const w=buildWorld(assets,{duel:true});w.resize(.46);
-  for(const s of [createDuel(),inPlay()])for(const side of SIDES){w.update(viewFor(s,side),0,false,1);const c=draws(w);
-    assert.ok(c.main<=100,`${side} 可见物体 ${c.main}`);assert.ok(c.casters<=50,`${side} 投影物体 ${c.casters}`);}
+test('对战绘制数：准备状态与发球后，可见物体 ≤100、投影物体 ≤50（与 perf.test 的统计时机和阈值相同）；两边都戴帽子的人物也一样', async()=>{
+  const hats=await loadCharacters({player:'mage',rival:'knight'});
+  for(const a of [assets,hats]){const w=buildWorld(a,{duel:true});w.resize(.46);
+    for(const s of [createDuel(),inPlay()])for(const side of SIDES){w.update(viewFor(s,side),0,false,1);const c=draws(w);
+      assert.ok(c.main<=100,`${a.rival??'门将'} ${side} 可见物体 ${c.main}`);assert.ok(c.casters<=50,`${a.rival??'门将'} ${side} 投影物体 ${c.casters}`);}}
 });
 
 // The receiver of a burst used to see only a frozen opponent for the charge, as if the link had stalled: now the charge
@@ -85,4 +87,29 @@ test('对战远端人物的手套是深藏青，和白球分得开；单机门�
   const color=w=>w.actors.goalie.gloves.map(g=>'#'+g.group.getObjectByName('glove-body').material.color.getHexString());
   assert.deepEqual(color(buildWorld(assets,{duel:true})),[DUEL_FAR_GLOVE,DUEL_FAR_GLOVE]);
   assert.deepEqual(color(buildWorld(assets)),['#f4f6ff','#f4f6ff']);
+});
+
+test('对战远端是对手选的人物：同一个模型换成客队蓝色队服、深藏青手套、背号 02；没给对手人物时还是原来的远端角色', async()=>{
+  const rivalAssets=await loadCharacters({rival:'knight'});assert.equal(rivalAssets.rival,'knight');
+  const w=buildWorld(rivalAssets,{duel:true}),far=w.actors.goalie,height=o=>new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()).y;
+  assert.ok(far.root.getObjectByName('player-hat'),'远端戴着骑士的头盔');assert.ok(!w.actors.striker.root.getObjectByName('player-hat'),'近端还是游侠');
+  assert.deepEqual(far.gloves.map(g=>'#'+g.group.getObjectByName('glove-body').material.color.getHexString()),[DUEL_FAR_GLOVE,DUEL_FAR_GLOVE]);
+  assert.ok(Math.abs(height(far.root)-height(w.actors.striker.root))<.25,'和近端一样高');
+  assert.ok(!buildWorld(assets,{duel:true}).actors.goalie.root.getObjectByName('player-hat'),'没给对手人物：原来的远端角色');
+  // The kit: whatever a figure's own rule turns into the club orange turns into the away blue; the rest stays.
+  const home=playerSpec('knight'),away=rivalSpec('knight'),plate=[200,.1,.5];
+  assert.equal(home.recolor(...plate)[0],18);assert.equal(away.recolor(...plate)[0],205);assert.equal(away.number,'02');
+  assert.deepEqual(rivalSpec('rogue').recolor(20,.4,.3),playerSpec('rogue').recolor(20,.4,.3),'头发这类非队服颜色不变');
+  assert.equal(rivalSpec('dragon').id,'rogue');
+});
+
+// A duel's far player never dives, and a figure has no dive to measure: the goal camera's beaten-dive stretch is none.
+test('对战里自己进球：进球镜头照常渲染，远端人物不扑救（不报错）', async()=>{
+  for(const a of [assets,await loadCharacters({rival:'mage'})])for(const side of SIDES){
+    const w=buildWorld(a,{duel:true});w.resize(.46);const s=inPlay(),opp=side==='a'?'b':'a';
+    Object.assign(s.ball,side==='a'?{x:0,z:COURT_GOAL-.3,vx:0,vz:DUEL.speed,curve:null,kind:null,z0:6,z1:COURT_GOAL}:mirrorBall({x:0,z:COURT_GOAL-.3,vx:0,vz:DUEL.speed,curve:null,kind:null,z0:6,z1:COURT_GOAL}));
+    s.players[opp].x=side==='a'?2.5:-2.5;
+    for(let i=0;i<90;i++){stepDuel(s,1/60);w.update(viewFor(s,side),0,false,i/60);}
+    assert.equal(s.score[side],1,`${side} 进球`);
+  }
 });

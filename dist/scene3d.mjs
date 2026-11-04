@@ -5,7 +5,7 @@ import {hitFeel} from './ui.mjs';
 import {buildSpectatorCrowd} from './crowd.mjs';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {loadCharacterAssets,createActor,toonMaterial,outlineMaterial,addOutline} from './actor.mjs';
-import {CHARACTERS,DEFAULT_PLAYER,playerSpec} from './characters.mjs';
+import {CHARACTERS,DEFAULT_PLAYER,playerSpec,rivalSpec} from './characters.mjs';
 
 // The ball's wave print, one texture for every world the page builds (a figure change rebuilds the world). The ball's
 // two materials share a shader program, and a disposed print from the old world got uploaded again by the new one, so
@@ -232,9 +232,11 @@ export function buildWorld(assets,{duel=false}={}){
   // Players: skinned characters (actor.mjs, characters.mjs) on the roots the scene always used: the striker's root
   // faces -z, the keeper's is turned to face it; root tilt and position keep their old meaning.
   // In a duel the far figure strikes the ball too, and the keeper's near-white gloves hid it at contact (AC21 stand-in
-  // report): there it wears deep navy gloves, which part from the white ball and the turf.
-  const FAR_SPEC=duel?{...CHARACTERS.keeper,glove:{...CHARACTERS.keeper.glove,color:DUEL_FAR_GLOVE}}:CHARACTERS.keeper;
-  const striker=createActor(assets.striker,playerSpec(assets.player),'striker'),goalie=createActor(assets.keeper,FAR_SPEC,'keeper');
+  // report): there it wears deep navy gloves, which part from the white ball and the turf. With the opponent's figure
+  // known (assets.rival) it is that figure in the away kit; otherwise the keeper's figure stands in.
+  const rival=duel&&assets.rivalFigure?rivalSpec(assets.rival):null,farBase=rival??CHARACTERS.keeper;
+  const FAR_SPEC=duel?{...farBase,glove:{...farBase.glove,color:DUEL_FAR_GLOVE}}:CHARACTERS.keeper;
+  const striker=createActor(assets.striker,playerSpec(assets.player),'striker'),goalie=createActor(rival?assets.rivalFigure:assets.keeper,FAR_SPEC,'keeper');
   const hero=striker.root,keeper=goalie.root;
   scene.add(hero);hero.position.set(0,0,-1.6);
   // In a duel the second player stands where the striker does, seen from the other end.
@@ -447,16 +449,18 @@ export function buildWorld(assets,{duel=false}={}){
     if(w>0){armTarget.set(tx,ty-(ty-.2)*land,-KEEPER_Z+.15);goalie.aimArm('L',armTarget,w);goalie.aimArm('R',armTarget,w);}
   }
   // How far the keeper's body reaches sideways at ball height (below 1.7) for each stretch with both arms reaching
-  // out toward the ball side, measured once from the model.
-  const keeperReach=(()=>{const out=[],x0=keeper.position.x,y0=keeper.position.y;
+  // out toward the ball side, measured once from the model. Single player only: a duel's far player never dives (and a
+  // figure has no dive to measure).
+  const keeperReach=duel?null:(()=>{const out=[],x0=keeper.position.x,y0=keeper.position.y;
     for(let i=0;i<=10;i++){const o=poseKeeper(i/10,1);keeper.position.x=x0+o.x;keeper.position.y=y0+o.y;poseGoalie(i/10,1,0,1,x0+8,0,0,0,0,null,null);out.push(goalie.reach(x0));}
     poseKeeper(0,1);keeper.position.x=x0;keeper.position.y=y0;poseGoalie(0,1,0,0,0,0,0,0,0,null,null);return out;})();
   // The second player's punch contact frames, measured like the striker's (duel only; it leaves the figure at idle).
   const OPP_PUNCH=duel?{left:goalie.measureReach('punchLeft'),right:goalie.measureReach('punchRight')}:null;
   if(duel)goalie.pose([['idle',0,1]]);
   const oppSwing={last:null,endAt:-9,time:0,left:false,fk:null};
-  // A beaten keeper's fingertips just miss: the stretch stops 0.2 short of the ball's centre (about its radius).
-  function beatenDive(gap){const room=Math.max(keeperReach[0],gap-.2);let d=0;while(d<10&&keeperReach[d+1]<=room)d++;return d/10;}
+  // A beaten keeper's fingertips just miss: the stretch stops 0.2 short of the ball's centre (about its radius). None in a
+  // duel (no keeperReach).
+  function beatenDive(gap){if(!keeperReach)return 0;const room=Math.max(keeperReach[0],gap-.2);let d=0;while(d<10&&keeperReach[d+1]<=room)d++;return d/10;}
   // A save's stretch follows the ball's gap: a ball at the body is a step and a low block, one at the edge of the
   // 0.55 save reach a short dive; the arms go to the ball either way.
   function saveStretch(gap){return .12+.45*Math.max(0,Math.min(1,(gap-.1)/.45));}
@@ -604,8 +608,10 @@ export function buildWorld(assets,{duel=false}={}){
       if(osw!==os.last){if(os.last&&!osw)os.endAt=s.elapsed;else if(osw)os.left=s.ball.x>k.x+.08;os.last=osw;}
       if(osw)os.time=osw.time;
       const oc=os.left?OPP_PUNCH.left:OPP_PUNCH.right;let oTime=0,oWeight=0;
-      if(osw){oTime=punchTime(osw.time,w,oc.t);oWeight=Math.min(1,osw.time/.025);}
-      else if(s.elapsed-os.endAt<.12){const e=s.elapsed-os.endAt;oTime=punchTime(os.time+e,w,oc.t);oWeight=1-e/.12;}
+      // Its punch is timed by its own style (a slower recovery holds the follow-through longer).
+      const og=playerGear({weapon:s.weapon,style:o.style});
+      if(osw){oTime=punchTime(osw.time,og,oc.t);oWeight=Math.min(1,osw.time/.025);}
+      else if(s.elapsed-os.endAt<.12){const e=s.elapsed-os.endAt;oTime=punchTime(os.time+e,og,oc.t);oWeight=1-e/.12;}
       // Its burst: the punch cocked back through the charge, thrown to the contact frame at the strike and held there
       // until the ball leaves; the launch then hands over to its swing clock, which starts at contact.
       const foeWind=fk?sm((ft-B.freeze)/(B.strike-B.freeze))*(ft<B.strike?1:0):0;
@@ -828,9 +834,9 @@ export function createQualityGovernor({slowMs=22,holdMs=2000}={}){
 }
 // Returns at once; `ready` settles when the characters are loaded and the world is built (nothing is drawn before).
 // A failed load rejects `ready`, and the caller falls back to the 2D court. `player` picks the striker's figure (a
-// figure that fails to load falls back to the default one); `player` on the renderer says which one is shown. The
-// other options go to buildWorld ({duel}).
-export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url),{player=DEFAULT_PLAYER,...options}={}){
+// figure that fails to load falls back to the default one); `player` on the renderer says which one is shown. `rival`
+// (a duel): the far player's figure the same way (`rival` on the renderer). The other options go to buildWorld ({duel}).
+export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url),{player=DEFAULT_PLAYER,rival=null,...options}={}){
   // No preserveDrawingBuffer: tiled mobile GPUs would otherwise copy the whole frame every time.
   const context=canvas.getContext('webgl2',{antialias:true,alpha:false});
   if(!context)throw new Error('WebGL2 is unavailable');
@@ -850,25 +856,28 @@ export function create3DRenderer(canvas,load=url=>new GLTFLoader().loadAsync(url
   // lights' shadow maps.
   const disposeWorld=w=>w?.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!m.map?.userData.shared)m.map?.dispose();m.dispose();}}
     if(o.isSkinnedMesh)o.skeleton.dispose();if(o.isLight&&o.shadow?.map){o.shadow.map.dispose();o.shadow.map=null;}});
-  const ready=loadCharacterAssets(cached,{player}).then(a=>{assets=a;world=buildWorld(assets,options);worlds++;applyQuality();});
-  // Shows another figure (the lobby's pick). Resolves to the figure actually shown: a file that fails keeps the
-  // current one. Changes arriving while one is loading are applied in order; the last one wins.
+  const ready=loadCharacterAssets(cached,{player,rival}).then(a=>{assets=a;world=buildWorld(assets,options);worlds++;applyQuality();});
+  // Shows another figure: the striker (the lobby's pick, setPlayer) or the duel's far player (setRival). Resolves to the
+  // figure actually shown: a file that fails keeps the current one. Changes arriving while one is loading are applied in
+  // order; the last one wins.
   let queue=Promise.resolve();
-  function setPlayer(id){
+  function swap(id,key,file){
     queue=queue.then(()=>ready).then(async()=>{
-      const spec=playerSpec(id);if(spec.id===assets.player)return assets.player;
-      let striker;try{striker=await cached(spec.file);}catch{return assets.player;}
-      const next={...assets,striker,player:spec.id},old=world;
-      world=buildWorld(next,options);worlds++;assets=next;disposeWorld(old);applyQuality();return assets.player;
+      const spec=playerSpec(id);if(spec.id===assets[key])return assets[key];
+      let rig;try{rig=await cached(spec.file);}catch{return assets[key];}
+      const next={...assets,[file]:rig,[key]:spec.id},old=world;
+      world=buildWorld(next,options);worlds++;assets=next;disposeWorld(old);applyQuality();return assets[key];
     });
     return queue;
   }
+  const setPlayer=id=>swap(id,'player','striker'),setRival=id=>swap(id,'rival','rivalFigure');
   // The canvas size is read only when it changes (ResizeObserver), not every frame, so rendering never forces layout.
   const measure=()=>{const r=canvas.getBoundingClientRect();size=[r.width,r.height];};
   const observer=typeof ResizeObserver==='function'?new ResizeObserver(measure):null;observer?.observe(canvas);
   return {
-    ready,setPlayer,
+    ready,setPlayer,setRival,
     get player(){return assets?.player??null;},
+    get rival(){return assets?.rival??null;},
     get info(){return renderer.info;},
     get worlds(){return worlds;},
     get quality(){return governor.tier;},

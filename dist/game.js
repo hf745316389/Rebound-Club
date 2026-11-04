@@ -5,7 +5,7 @@ import {loadProgress,saveProgress,needsTutorial} from './storage.mjs';
 import {create3DRenderer} from './scene3d.mjs';
 import {sound,buzz,setSound} from './sfx.mjs';
 import {PLAYERS,playerSpec} from './characters.mjs';
-import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE,ZONE_NAME,styleSummary} from './ui.mjs';
+import {screenFor,createMatchStats,recordMatchEvent,matchSummary,icon,hitFeel,whiffHint,TUTORIAL_TIPS,SKILL_STATE,ZONE_NAME,styleSummary,styleText} from './ui.mjs';
 
 const $=id=>document.getElementById(id);
 // In a match tips float over the court as a caption: any change to the feedback line shows it for a few seconds.
@@ -50,7 +50,7 @@ const shownPlayer=()=>pendingPlayer??court3D?.player??playerSpec(progress.player
 // or with no 3D court (2D fallback) the saved pick. A figure that failed to load plays as the default it falls back to.
 const pickedStyle=()=>playerSpec(shownPlayer()).style;
 // A figure's style in one line: its name, strength and cost.
-function styleLine(id){const s=styleSummary(playerSpec(id).style);return s.good.length?`${s.name}：${s.good.join('，')}；代价：${s.bad.join('，')}`:`${s.name}：标准手感，没有长处也没有代价`;}
+function styleLine(id){return styleText(playerSpec(id).style);}
 function players(){
   const shown=shownPlayer();if(court3D?.player)canvas.dataset.player=court3D.player;if(game.phase==='ready')game.style=playerSpec(shown).style;$('prep-player-name').textContent=playerSpec(shown).name;$('player-style').textContent=styleLine(shown);
   $('players').innerHTML=PLAYERS.map(p=>`<button class='player-card ${p.id===shown?'selected':''}' data-player='${p.id}' aria-label='${p.name}' aria-pressed='${p.id===shown}'><img src='./portraits/${p.id}.png' alt='' width='256' height='256'><b>${p.name}</b><small>${styleSummary(p.style).name}</small></button>`).join('');

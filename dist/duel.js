@@ -15,7 +15,9 @@ import {createBot} from './duel-bot.mjs';
 import {createInput} from './input.mjs';
 import {create3DRenderer} from './scene3d.mjs';
 import {sound,buzz,setSound} from './sfx.mjs';
-import {icon,hitFeel,whiffHint,SKILL_STATE} from './ui.mjs';
+import {icon,hitFeel,whiffHint,SKILL_STATE,styleText} from './ui.mjs';
+import {loadProgress,saveProgress} from './storage.mjs';
+import {PLAYERS,DEFAULT_PLAYER,playerSpec} from './characters.mjs';
 import {COMBO,comboMult} from './combo.mjs';
 
 const $=id=>document.getElementById(id);
@@ -34,6 +36,14 @@ let mode='ai',latency=0,sync='catchup',soundOn=true,match=null,room=null,uiPhase
 // The bot's level against the AI (duel-bot.mjs BOT_LEVELS); this match's combo numbers (see logEvent).
 let botLevel='normal',log=null;
 const idle=createDuel();
+// Figures (characters.mjs PLAYERS; each plays its style, duel-core duelFigure). This player's is the club's saved pick,
+// the lobby's and this page's alike. The other side's, against the bot or on one keyboard, is picked here or drawn at
+// random (`rolled`, drawn again for each match); online it is what the other player said (room.foeFigure, then its
+// position messages).
+let store;try{store=window.localStorage;}catch{store=null;}
+const progress=loadProgress(store),randomFigure=()=>PLAYERS[Math.floor(Math.random()*PLAYERS.length)].id;
+let rivalPick='random',rolled=randomFigure(),loading=false;
+const myFigure=()=>progress.player,rivalFigure=()=>rivalPick==='random'?rolled:rivalPick;
 // The side this page's player plays: A against the bot and on one keyboard, the side the room gives it online.
 // Watching, both sides are shown with their names, as on one keyboard, from the side being watched from.
 const me=()=>match?.me??'a',foe=()=>me()==='a'?'b':'a';
@@ -44,14 +54,21 @@ const axisB=()=>(keysB.has('ArrowLeft')?1:0)-(keysB.has('ArrowRight')?1:0);
 const stateOf=()=>match?match.state:idle;
 const viewOf=()=>match?.mode==='ai'?match.a.view():match?.mode==='online'?match.client.view():watching()?match.watcher.view(match.view):viewFor(stateOf(),'a');
 
+// A match against the bot or on one keyboard starts once both figures stand on the court: a figure change rebuilds the
+// scene, which would otherwise stall the serve.
 function newMatch(){
+  if(loading||!court)return;const mine=myFigure(),theirs=rivalFigure();loading=true;
+  Promise.all([court.setPlayer(mine),court.setRival(theirs)]).then(()=>{loading=false;begin(mine,theirs);},()=>{loading=false;});
+}
+function begin(mine,theirs){
   input.reset();keysB.clear();
   if(mode==='ai'){
     const now=()=>performance.now()/1000,seed=(Math.random()*2**31)>>>0,loop=createLoopback({delayMs:latency,jitterMs:latency*.2,seed,now});
     const used=sync==='blind'?(Math.random()<.5?'catchup':'fullflight'):sync;
-    const a=createClient({side:'a',transport:loop[0],now,sync:used}),b=createClient({side:'b',transport:loop[1],now,sync:used});
+    const a=createClient({side:'a',transport:loop[0],now,sync:used,figure:mine,rival:theirs}),b=createClient({side:'b',transport:loop[1],now,sync:used,figure:theirs,rival:mine});
     match={mode,sync:used,blind:sync==='blind',loop,a,b,bot:createBot({seed:seed+1,level:botLevel}),state:a.state,pending:{a:{swing:false,skill:null}}};a.start();b.start();
-  }else{const s=createDuel();match={mode,state:s,pending:{a:{swing:false,skill:null},b:{swing:false,skill:null}}};startDuel(s);}
+  }else{const s=createDuel({figures:{a:mine,b:theirs}});match={mode,state:s,pending:{a:{swing:false,skill:null},b:{swing:false,skill:null}}};startDuel(s);}
+  if(rivalPick==='random')rolled=randomFigure();
   sound('start');
 }
 // A press is queued for the next step, so it goes through the same path (and network stamp) as everything else.
@@ -151,7 +168,7 @@ function summary(s,side){
 // Kept on this device only, for tuning combo.mjs later: the last 50 matches played here (not watched).
 function keepStats(s){
   if(!log||log.kept||log.match!==match||watching())return;log.kept=true;const mine=mode==='local'?'a':me(),theirs=mine==='a'?'b':'a';
-  try{const all=JSON.parse(localStorage.getItem(STATS)||'[]');all.push({at:Date.now(),mode,bot:mode==='ai'?botLevel:null,won:s.winner===mine,score:{...s.score},me:summary(s,mine),foe:summary(s,theirs)});
+  try{const all=JSON.parse(localStorage.getItem(STATS)||'[]');all.push({at:Date.now(),mode,bot:mode==='ai'?botLevel:null,figures:{me:s.players[mine].figure,foe:s.players[theirs].figure},won:s.winner===mine,score:{...s.score},me:summary(s,mine),foe:summary(s,theirs)});
     localStorage.setItem(STATS,JSON.stringify(all.slice(-50)));}catch{/* storage is optional */}
 }
 function comboLines(s,n,l,r){
@@ -187,11 +204,14 @@ function setupUI(){
   for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-checked',String(b.dataset.mode===mode));
   for(const b of document.querySelectorAll('[data-latency]'))b.setAttribute('aria-checked',String(Number(b.dataset.latency)===latency));
   for(const b of document.querySelectorAll('[data-bot]'))b.setAttribute('aria-checked',String(b.dataset.bot===botLevel));
+  for(const b of document.querySelectorAll('[data-figure]'))b.setAttribute('aria-checked',String(b.dataset.figure===myFigure()));
+  for(const b of document.querySelectorAll('[data-rival]'))b.setAttribute('aria-checked',String(b.dataset.rival===rivalPick));
+  $('figure-style').textContent=styleText(playerSpec(myFigure()).style,{powerShare:DUEL.stylePower});$('rival-label').textContent=mode==='local'?'远端人物':'对手人物';
   // Online, the room's owner chooses how matches sync and who leaves the court after one; the others see the choice.
   const rules=mode==='online'?room?.snap?.rules:null;
   for(const b of document.querySelectorAll('[data-sync]'))b.setAttribute('aria-checked',String(b.dataset.sync===(rules?.sync??sync)));
   for(const b of document.querySelectorAll('[data-rotation]'))b.setAttribute('aria-checked',String(b.dataset.rotation===rules?.rotation));
-  $('mode-local').hidden=coarse;$('latency-group').hidden=mode!=='ai';$('bot-group').hidden=mode!=='ai';$('online-group').hidden=mode!=='online';
+  $('mode-local').hidden=coarse;$('latency-group').hidden=mode!=='ai';$('bot-group').hidden=mode!=='ai';$('rival-group').hidden=mode==='online';$('online-group').hidden=mode!=='online';
   $('sync-group').hidden=!(mode==='ai'||mode==='online'&&isOwner());$('rotation-group').hidden=!(mode==='online'&&isOwner());
   $('duel-keys').innerHTML=mode==='online'?`${coarse?'按住左右箭头移动，点挥击回球；能量够时可放旋转、爆发。':'移动 <b>A / D</b> 或 <b>← / →</b> · 挥击 <b>空格</b> · 旋转 <b>J</b> · 爆发 <b>K</b> · 暂停 <b>Esc</b>'}<br>好友联机：一人创建房间，把房间码或邀请链接发给朋友，最多 8 人。场上两人对打，两人都点「准备」就开局；其他人排队等上场，或者观战。暂停时场上两人一起停。`
     :coarse?'按住左右箭头移动，点挥击回球；能量够时可放旋转、爆发。':mode==='ai'
@@ -240,7 +260,16 @@ function frame(time){
   if(match&&dt>0)stepMatch(dt);
   events();
   shake*=Math.exp(-dt*9);if(shake<.005||reduceMotion)shake=0;
-  phaseUI();hud();court?.render(viewOf(),input.axis(),reduceMotion,shake);requestAnimationFrame(frame);
+  const v=viewOf();phaseUI();hud();syncFigures(v);court?.render(v,input.axis(),reduceMotion,shake);requestAnimationFrame(frame);
+}
+// The figures on the court: this player's near and the other side's far; a watched match, the side watched from and its
+// opponent, as their position messages say. Off a match, the next one's. A change rebuilds the scene once (asked).
+const asked={near:null,far:null};
+function syncFigures(v){
+  if(!court||loading)return;
+  const near=watching()?v.figure:myFigure(),far=match?v.opponent.figure:mode==='online'?room?.foeFigure??DEFAULT_PLAYER:rivalFigure();
+  if(near&&near!==court.player&&near!==asked.near){asked.near=near;court.setPlayer(near);}
+  if(far&&far!==court.rival&&far!==asked.far){asked.far=far;court.setRival(far);}
 }
 
 // The court. A duel needs the 3D scene; without WebGL2 (or if the characters fail to load) the page says so.
@@ -248,13 +277,19 @@ const booted=()=>{document.body.dataset.booted='1';};
 function unsupported(){court=null;$('start-match').disabled=true;say('对战需要 3D 画面，当前设备不支持。');
   overlay(`<div class='duel-unsupported'><h3>对战需要 3D 画面</h3><p>当前设备或浏览器不支持 WebGL2，暂时无法进行对战。</p><a class='primary-button' href='./index.html'>返回单机</a></div>`);booted();}
 try{
-  const r=create3DRenderer($('court'),undefined,{duel:true});$('court').dataset.renderer='3d';
+  // The figure buttons: one per figure, and a random one for the other side.
+  const choice=(key,id,name)=>`<button type="button" class="duel-choice figure" data-${key}="${id}" role="radio" aria-checked="false">${name}</button>`;
+  $('figure-group').insertAdjacentHTML('beforeend',PLAYERS.map(p=>choice('figure',p.id,p.name)).join(''));
+  $('rival-group').insertAdjacentHTML('beforeend',choice('rival','random','随机')+PLAYERS.map(p=>choice('rival',p.id,p.name)).join(''));
+  const r=create3DRenderer($('court'),undefined,{duel:true,player:myFigure(),rival:rivalFigure()});$('court').dataset.renderer='3d';
   r.ready.then(()=>{court=r;uiPhase='';booted();},()=>{r.dispose();unsupported();});
 }catch{unsupported();}
 
 document.querySelector('.app').addEventListener('click',e=>{
-  const el=e.target.closest('[data-action],[data-mode],[data-latency],[data-bot],[data-sync],[data-rotation]');if(!el)return;
+  const el=e.target.closest('[data-action],[data-mode],[data-latency],[data-bot],[data-figure],[data-rival],[data-sync],[data-rotation]');if(!el)return;
   if(el.dataset.bot&&!match){botLevel=el.dataset.bot;setupUI();return;}
+  if(el.dataset.figure&&!match){progress.player=el.dataset.figure;progress.saved=saveProgress(store,progress);tellFigure();setupUI();return;}
+  if(el.dataset.rival&&!match){rivalPick=el.dataset.rival;setupUI();return;}
   if(el.dataset.mode&&!match){if(el.dataset.mode!=='online')leaveRoom();mode=el.dataset.mode;setupUI();return;}
   if(el.dataset.latency!==undefined&&!match){latency=Number(el.dataset.latency);setupUI();return;}
   if(el.dataset.sync&&!match){if(mode==='online'){if(isOwner())room.link.command({type:'rules',sync:el.dataset.sync});return;}sync=el.dataset.sync;setupUI();return;}
@@ -350,7 +385,7 @@ const readyLeft=()=>{const m=room?.snap?.match;return m?.phase!=='ready'||m.read
 $('online-name').value=savedName();
 
 function openRoom(join){
-  leaveRoom();const link=createLink({join}),r=room={link,info:null,snap:null,snapAt:0,peer:false,n:0,retrying:false,early:[],skipWatch:null};
+  leaveRoom();const link=createLink({join}),r=room={link,info:null,snap:null,snapAt:0,peer:false,n:0,retrying:false,early:[],skipWatch:null,foeFigure:null};
   // A match's messages from a player who heard the room call it first wait for this page to start it.
   link.onMessage((w,at)=>{if(match?.mode==='online'&&w.n===match.n)match.onGame?.(w.m,at);else if(w.n>r.n&&r.early.length<600)r.early.push({w,at});});
   link.onControl(onControl);
@@ -360,7 +395,10 @@ function openRoom(join){
     if(e.type==='start')startArena(e);
     if(e.type==='result')onResult(e);
     if(e.type==='feed'&&watching()&&e.n===match.n)match.watcher.push({side:e.side,msgs:e.msgs,o:e.o,at:performance.now()/1000});
-    if(e.type==='peer'){r.peer=e.present;r.retrying=false;
+    // A new opponent hears this player's figure at once, and again whenever it comes (back): a message to someone not
+    // there is dropped by the room.
+    if(e.type==='pair'){r.foeFigure=null;tellFigure();}
+    if(e.type==='peer'){r.peer=e.present;r.retrying=false;if(e.present)tellFigure();
       if(match?.mode==='online'){
         // The other player gone mid-match (a pause it made included): play waits for it; back, either can go on.
         if(!e.present){if(DUEL_ACTIVE.includes(match.state.phase)){match.client.pause();note('pause');}if(match.state.phase==='paused'){match.pausedBy='gone';match.resumeAt=null;}}
@@ -386,7 +424,7 @@ function startArena({n,sync:used,blind,a,b}){
   const now=()=>performance.now()/1000;
   const m={mode:'online',me:side,n,sync:used,blind,foeName:nameOf(side==='a'?b:a),pending:{[side]:{swing:false,skill:null}},onGame:null,pausedBy:null,resumeAt:null,fed:false};
   const transport={send:msg=>{room?.link.send({n,m:msg});room?.link.feedPush(msg);},onMessage:fn=>{m.onGame=fn;},close(){}};
-  m.client=createClient({side,transport,now,sync:used});m.state=m.client.state;match=m;
+  m.client=createClient({side,transport,now,sync:used,figure:myFigure(),rival:room.foeFigure??undefined});m.state=m.client.state;match=m;
   room.link.feedStart(n,()=>m.client.synced?m.client.clock.offset:null);
   const early=room.early.filter(x=>x.w.n===n);room.early=room.early.filter(x=>x.w.n>n);for(const x of early)m.onGame?.(x.w.m,x.at);
   m.client.start();sound('start');uiPhase='';phaseUI();
@@ -430,7 +468,10 @@ function startButton(){
 }
 function rename(){const v=$('rename-input').value.trim();keepName(v);$('online-name').value=v;room?.link.command({type:'name',name:v});}
 const holdResume=()=>{match.resumeAt=performance.now()/1000+RESUME_HOLD;uiPhase='';};
+// This player's figure, to the one it faces (onControl), so its far figure is on the court before the match.
+function tellFigure(){room?.link.control({type:'figure',id:myFigure()});}
 function onControl(c){
+  if(c.type==='figure'&&room&&PLAYERS.some(p=>p.id===c.id)){room.foeFigure=c.id;return;}
   const same=match?.mode==='online'&&match.n===c.n;
   if(c.type==='pause'&&same&&DUEL_ACTIVE.includes(match.state.phase)){match.client.pause();note('pause');match.pausedBy='peer';uiPhase='';input.reset();}
   else if(c.type==='resume'&&same&&match.state.phase==='paused'&&!match.resumeAt)holdResume();

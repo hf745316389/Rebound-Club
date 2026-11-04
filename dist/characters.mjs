@@ -33,9 +33,9 @@ export const CHARACTERS={
   }
 };
 
-// The figures a player may pick for the striker (single player only). Each entry overrides CHARACTERS.striker; all of
-// them share its rig, clips, height and gloves, so only the look changes. recolor turns each figure's own atlas into
-// the club's orange kit. hat: one prop hanging off the head that is kept (packed and drawn with the original atlas, so
+// The figures a player may pick: the club's striker, and either player in a duel (rivalSpec for the far one). Each
+// entry overrides CHARACTERS.striker; all of them share its rig, clips, height and gloves, so only the look changes.
+// recolor turns each figure's own atlas into the club's orange kit. hat: one prop hanging off the head that is kept (packed and drawn with the original atlas, so
 // it keeps its colours); every other prop is dropped as before. hatScale shrinks it about its head bone if needed.
 // style: how the figure plays (core.mjs STYLES), a small strength paired with a small cost.
 const ORANGE=l=>[18,.95,Math.min(.62,l*1.05+.08)];
@@ -59,4 +59,11 @@ export const PLAYERS=[
 export function playerSpec(id){
   const p=PLAYERS.find(e=>e.id===id)??PLAYERS.find(e=>e.id===DEFAULT_PLAYER);
   return {...CHARACTERS.striker,...p};
+}
+// The duel's far player (duel.html): the same figure in the away kit, so two players on the same figure still part.
+// Whatever its rule turns into the club orange turns into the keeper's deep blue instead; it wears 02 and the keeper's
+// warm rim light. (The scene gives it deep navy gloves.)
+export function rivalSpec(id){
+  const spec=playerSpec(id),home=spec.recolor;
+  return {...spec,number:'02',rim:CHARACTERS.keeper.rim,recolor:(h,s,l)=>{const o=home(h,s,l);return o&&o[0]===18?[205,.75,o[2]*.92]:o;}};
 }

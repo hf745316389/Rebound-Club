@@ -41,9 +41,10 @@ export const ZONES={low:{mult:1,h:.21,loft:.35,color:'#8fd3ff'},mid:{mult:2,h:.6
 // bonusScore; the fire-th arms a fireball and the chain starts over. The next contact of any kind takes the fireball:
 // it goes through the keeper, though it still has to find the mouth.
 export const CHAIN={bonus:3,bonusScore:500,fire:5};
-// Player styles (single player): each figure plays one (characters.mjs PLAYERS), a small strength paired with a small
-// cost. run scales RUN, width the hit box's width, power the power shot's speed, recovery the swing's recovery, and
-// spinCost replaces the spin's energy cost. 'balanced' changes nothing.
+// Player styles: each figure plays one (characters.mjs PLAYERS), a small strength paired with a small cost, here and in
+// the duel (duel-core.mjs duelFigure, which keeps DUEL.stylePower of the power change). run scales RUN, width the hit
+// box's width, power the power shot's speed, recovery the swing's recovery, and spinCost replaces the spin's energy
+// cost. 'balanced' changes nothing.
 export const STYLES={balanced:{},agile:{run:1.1,width:.95},power:{power:1.1,recovery:1.4},skill:{spinCost:40,power:.95},guard:{width:1.1,run:.95}};
 export const KEEPER_Z=9.3,FAR_WALL=9.8,GOAL_Z=9.7,SIDE=3.82,KEEPER_REACH=.55;
 export const ACTIVE_PHASES=['playing','serving','miss','goal','skill'];

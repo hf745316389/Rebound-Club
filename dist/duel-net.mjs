@@ -13,7 +13,7 @@
 // round trip (ping/pong, kept for the round-trip time) is off by half the jitter.
 // Someone watching (createWatcher, arena rooms) gets both players' own messages from the room and replays them.
 import {WEAPONS} from './core.mjs';
-import {COURT,createDuel,startDuel,stepDuel,duelAttack,duelSkill,applyMessage,pauseDuel,resumeDuel,other,localBall} from './duel-core.mjs';
+import {COURT,createDuel,startDuel,stepDuel,duelAttack,duelSkill,applyMessage,pauseDuel,resumeDuel,other,localBall,duelFigure} from './duel-core.mjs';
 import {viewFor} from './duel-view.mjs';
 
 function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
@@ -42,8 +42,10 @@ const EASE=.15,W=WEAPONS.glove,BALL_EVENTS=['serve','hit','wide'],STRIKES=['hit'
 // and hides the round trip on this player's own strike: drawn slower on its way out (the rules' ball is untouched), it
 // reaches the other player as that player's return arrives. hideCap: the most of the round trip hidden that way (s).
 // catchShare: of the round trip beyond hideCap, the share a receiver flies on; the outgoing ball waits out the rest.
-export function createClient({side,transport,now,posEvery=1/30,pingEvery=.25,sync='catchup',hideCap=.12,catchShare=.5}){
-  const opp=other(side),s=createDuel({auth:{[side]:true,[opp]:false}}),inbox=[],full=sync==='fullflight';
+// figure: this player's figure (characters.mjs PLAYERS); it goes out on every position message, so the other copy (and
+// anyone watching) learns it at once, and again after a reconnect. rival: the other player's, if already known.
+export function createClient({side,transport,now,posEvery=1/30,pingEvery=.25,sync='catchup',hideCap=.12,catchShare=.5,figure,rival}){
+  const opp=other(side),s=createDuel({auth:{[side]:true,[opp]:false},figures:{[side]:figure,[opp]:rival}}),inbox=[],full=sync==='fullflight';
   // offset: the other clock minus ours. trips: our recent (arrival − sent); theirs: the other side's smallest, from `mi`.
   const clock={offset:0,rtt:null,trips:[],mine:Infinity,theirs:Infinity},ease={x:0,z:0,left:0},drawn={x:0,z:0};
   // This player's outgoing ball as drawn (fullflight): its path since the strike (match time e, this view's x/z), drawn
@@ -78,7 +80,7 @@ export function createClient({side,transport,now,posEvery=1/30,pingEvery=.25,syn
     if(msg.type==='pong'){const rtt=(arrived-msg.t0)-(msg.t2-msg.t1);clock.rtt=clock.rtt===null?rtt:clock.rtt*.8+rtt*.2;return;}
     const age=at-(msg.t-clock.offset),o=s.players[opp];
     if(msg.type==='pos'){
-      o.x=msg.x;o.held=msg.axis;
+      o.x=msg.x;o.held=msg.axis;if(msg.fig!==o.figure)duelFigure(s,opp,msg.fig);
       // A new swing starts its own clock (so the punch restarts); an ongoing one runs on (duel-core driftSwing). Full
       // flight draws the other player as its messages arrive, so the swing is not flown on either.
       if(msg.swing&&(!o.swing||msg.swing.time<o.swing.time-.05))o.swing={...msg.swing,time:msg.swing.time+(full?0:Math.max(0,age))};
@@ -131,7 +133,7 @@ export function createClient({side,transport,now,posEvery=1/30,pingEvery=.25,syn
       // Position and swing go out posEvery, and at once when a swing starts, ahead of anything else this step sends: the
       // channel is ordered, so the other side draws the punch before the strike it makes (without that about a third
       // of returns turned before the far punch showed). A spin or a burst's launch starts its swing and strikes in one go.
-      const pos=(stamp=now())=>{lastPos=t;const p=s.players[side],sw=p.swing;sentSwing=sw;send({type:'pos',x:p.x,axis:p.held,swing:sw?{time:sw.time,hit:sw.hit,whiffed:sw.whiffed,armed:sw.armed}:null},stamp);};
+      const pos=(stamp=now())=>{lastPos=t;const p=s.players[side],sw=p.swing;sentSwing=sw;send({type:'pos',x:p.x,axis:p.held,fig:p.figure,swing:sw?{time:sw.time,hit:sw.hit,whiffed:sw.whiffed,armed:sw.armed}:null},stamp);};
       const fresh=()=>{const sw=s.players[side].swing;return !!sw&&sw!==sentSwing;};
       // A spin leaves the glove at once, before this step's tick moves it: its message carries the step's start.
       if(input.skill)duelSkill(s,side,input.skill,input.axis||0);else if(input.swing)duelAttack(s,side);
@@ -177,7 +179,7 @@ export function createWatcher({now,delay=1,score=null}){
   }
   function apply({side,m}){
     if(m.type==='pos'){
-      const o=s.players[side];o.x=m.x;o.held=m.axis;
+      const o=s.players[side];o.x=m.x;o.held=m.axis;if(m.fig!==o.figure)duelFigure(s,side,m.fig);
       if(m.swing&&(!o.swing||m.swing.time<o.swing.time-.05))o.swing={...m.swing};else if(!m.swing&&o.swing&&!o.swing.hit)o.swing=null;
       return;
     }
